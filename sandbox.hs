@@ -178,25 +178,29 @@ infer p (HsLambda srcloc pats expr) = withLoc srcloc $ do (ms, ts) <- maptupM (i
     where monovars = concat $ map boundNamesOfPatInt pats
           p' = removePolyVars p monovars               
 infer p (HsParen expr) = infer p expr
-infer p (HsLet decls expr) = do --let declss = sortDecls decls
-                                let newnamesInt = concat $ map boundNamesOfDeclInt decls
-                                    newnamesExt = concat $ map boundNamesOfDeclExt decls
-                                    p' = removePolyVars p newnamesInt
-                                ms <- mapM (inferDef p') decls
-                                (m, _) <- unify ms []
-                                let m' = removeMonoVars m newnamesExt
-                                    p'' = foldl (\ p name -> addPolyVar p name (reduce m' (fromJust $ getMonoVar m name))) p' newnamesExt
-                                infer p'' expr
-    where reduce :: MonoEnv -> HsType -> (MonoEnv, HsType)
-          reduce m t = (m', t)
-              where m' = let tyVars = tyVarsOf t
-                         in filterMonoVars m (\ name ty -> Set.null $ (tyVarsOf ty) `Set.intersection` tyVars)
-                    tyVarsOf :: HsType -> Set.Set HsName
-                    tyVarsOf (HsTyVar x)          = Set.singleton x
-                    tyVarsOf (HsTyFun left right) = (tyVarsOf left) `Set.union` (tyVarsOf right)
-                    tyVarsOf (HsTyTuple tys)      = Set.unions $ map tyVarsOf tys
-                    tyVarsOf (HsTyApp left right) = (tyVarsOf left) `Set.union` (tyVarsOf right)
-                    tyVarsOf (HsTyCon _)          = Set.empty
+infer p inf@(HsInfixApp _ _ _) = infer p (infixToPrefix inf)
+infer p (HsLet decls expr) = do let declss = sortDecls decls
+                                p' <- foldM inferDeclGroup p declss
+                                infer p' expr
+    where inferDeclGroup :: PolyEnv -> [HsDecl] -> Stateful PolyEnv
+          inferDeclGroup p decls = do let newnamesInt = concat $ map boundNamesOfDeclInt decls
+                                          newnamesExt = concat $ map boundNamesOfDeclExt decls
+                                          p' = removePolyVars p newnamesInt
+                                      ms <- mapM (inferDef p') decls
+                                      (m, _) <- unify ms []
+                                      let m' = removeMonoVars m newnamesExt
+                                          p'' = foldl (\ p name -> addPolyVar p name (reduce m' (fromJust $ getMonoVar m name))) p' newnamesExt
+                                      return p''
+              where reduce :: MonoEnv -> HsType -> (MonoEnv, HsType)
+                    reduce m t = (m', t)
+                        where m' = let tyVars = tyVarsOf t
+                                   in filterMonoVars m (\ name ty -> Set.null $ (tyVarsOf ty) `Set.intersection` tyVars)
+                              tyVarsOf :: HsType -> Set.Set HsName
+                              tyVarsOf (HsTyVar x)          = Set.singleton x
+                              tyVarsOf (HsTyFun left right) = (tyVarsOf left) `Set.union` (tyVarsOf right)
+                              tyVarsOf (HsTyTuple tys)      = Set.unions $ map tyVarsOf tys
+                              tyVarsOf (HsTyApp left right) = (tyVarsOf left) `Set.union` (tyVarsOf right)
+                              tyVarsOf (HsTyCon _)          = Set.empty
 
 inferRhs p (HsUnGuardedRhs expr) = infer p expr
 inferRhs p (HsGuardedRhss rhss) = do (ms, ts) <- maptupM inferGuardedRhs rhss

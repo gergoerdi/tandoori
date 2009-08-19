@@ -20,7 +20,7 @@ callsFromRhs names (HsGuardedRhss rhss) = Set.unions $ map (callsFromGuarded nam
 callsFromGuarded names (HsGuardedRhs _ guard expr) = Set.union (callsFromExpr names guard) (callsFromExpr names expr)
                                                    
 callsFromExpr names (HsVar (UnQual name)) | Set.member name names = Set.singleton name
-callsFromExpr names (HsInfixApp left op right) = error $ "Infix unsupported: " ++ unwords ((show op):map show [left, right]) -- TODO
+callsFromExpr names inf@(HsInfixApp _ _ _) = callsFromExpr names (infixToPrefix inf)
 callsFromExpr names (HsApp fun actual) = Set.union (callsFromExpr names fun) (callsFromExpr names actual)
 callsFromExpr names (HsNegApp expr) = callsFromExpr names expr
 callsFromExpr names (HsLet decls expr) = Set.union guardcalls $ callsFromExpr names' expr
