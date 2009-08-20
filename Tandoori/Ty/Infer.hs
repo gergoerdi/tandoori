@@ -12,8 +12,6 @@ import Tandoori.Scope
 import Tandoori.CallGraph
 import Control.Monad.State
 import Language.Haskell.Syntax
-import Language.Haskell.Parser
-import Language.Haskell.Pretty
 import Data.Maybe
 import qualified Data.Set as Set
     
