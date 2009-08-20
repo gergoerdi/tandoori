@@ -1,4 +1,12 @@
-foo = let (a, b) = ([], [])
+fgo = let fst (x:xs) = x
+          fst [] = 0
+      in fst
+
+foo = let zig = 1:zag
+          zag = 2:zig
+      in zig
+
+fdo = let (a, b) = ([], [])
           ones = 1:ones
       in ones
 

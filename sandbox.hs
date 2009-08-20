@@ -61,8 +61,8 @@ isMonoVar :: PolyEnv -> VarName -> Bool
 isMonoVar PolyEnv{monovars = monovars} name = Set.member name monovars
 
 -- TODO: rename
-addMonoVars :: PolyEnv -> [VarName] -> PolyEnv
-addMonoVars p@PolyEnv{monovars = monovars} names = p{monovars = monovars `Set.union` (Set.fromList names)}
+declareMonoVars :: PolyEnv -> [VarName] -> PolyEnv
+declareMonoVars p@PolyEnv{monovars = monovars} names = p{monovars = monovars `Set.union` (Set.fromList names)}
 
 removeMonoVars :: MonoEnv -> [VarName] -> MonoEnv
 removeMonoVars (MonoEnv m) names = MonoEnv $ foldl removeMonoVar m names
@@ -142,7 +142,7 @@ mgu ((HsTyCon c,    HsTyCon c')    :eqs) | c == c' = mgu eqs
 mgu ((HsTyFun t u,  HsTyFun t' u'):eqs)            = mgu $ (t, t'):(u, u'):eqs
 mgu ((HsTyApp t u,  HsTyApp t' u'):eqs)            = mgu $ (t, t'):(u, u'):eqs
 mgu ((HsTyTuple ts, HsTyTuple ts') :eqs)           = mgu $ (zip ts ts') ++ eqs
-mgu ((l, r)                        :eqs)           = error $ unwords ["Unification failed at", show l, "=", show r] -- fail
+mgu ((l, r)                        :eqs)           = error $ unwords ["Unification failed at", prettyPrint l, "=", prettyPrint r] -- fail
 
 maptupM :: (Monad m) => (a -> m (b, c)) -> [a] -> m ([b], [c])
 maptupM action items = do results <- mapM action items
@@ -168,7 +168,7 @@ infer p (HsVar (UnQual name)) | isMonoVar p name = do alpha <- createTv
                                                      Nothing -> error $ "Unknown variable " ++ (show name)
                                                      Just (m, t) -> return (m, t)
 infer p (HsLambda srcloc pats expr) = withLoc srcloc $ do (ms, ts) <- maptupM (inferPat p') pats
-                                                          let p'' = addMonoVars p' (map fst $ concat $ map monoVars ms)
+                                                          let p'' = declareMonoVars p' (map fst $ concat $ map monoVars ms)
                                                           (m, t) <- infer p'' expr
                                                           alpha <- createTv
                                                           beta <- createTv
@@ -186,10 +186,11 @@ infer p (HsLet decls expr) = do let declss = sortDecls decls
           inferDeclGroup p decls = do let newnamesInt = concat $ map boundNamesOfDeclInt decls
                                           newnamesExt = concat $ map boundNamesOfDeclExt decls
                                           p' = removePolyVars p newnamesInt
-                                      ms <- mapM (inferDef p') decls
+                                      ms <- mapM (inferDef (declareMonoVars p' newnamesExt)) decls
                                       (m, _) <- unify ms []
                                       let m' = removeMonoVars m newnamesExt
-                                          p'' = foldl (\ p name -> addPolyVar p name (reduce m' (fromJust $ getMonoVar m name))) p' newnamesExt
+                                          definePoly p name = addPolyVar p name (reduce m' (fromJust $ getMonoVar m name))
+                                          p'' = foldl definePoly p' newnamesExt
                                       return p''
               where reduce :: MonoEnv -> HsType -> (MonoEnv, HsType)
                     reduce m t = (m', t)
@@ -212,11 +213,21 @@ inferRhs p (HsGuardedRhss rhss) = do (ms, ts) <- maptupM inferGuardedRhs rhss
                                      
 inferDef :: PolyEnv -> HsDecl -> Stateful MonoEnv
 inferDef p (HsPatBind srcloc pat rhs wheres) = withLoc srcloc $ do (m, t) <- inferPat p pat
-                                                                   let p' = addMonoVars p (map fst $ monoVars m)
+                                                                   let p' = declareMonoVars p (map fst $ monoVars m)
                                                                    (m', t') <- inferRhs p' rhs
                                                                    (m'', t'') <- unify [m, m'] [t, t']
                                                                    return m''
-                                                                         
+inferDef p (HsFunBind matches) = do ms <- mapM (inferMatch p) matches
+                                    (m, _) <- unify ms []
+                                    return m
+
+inferMatch p (HsMatch srcloc name pats rhs wheres) = withLoc srcloc $ do (ms, ts) <- maptupM (inferPat p) pats
+                                                                         let p' = declareMonoVars p (map fst $ concat $ map monoVars ms)
+                                                                         (m, t) <- inferRhs p' rhs
+                                                                         alpha <- createTv
+                                                                         beta <- createTv
+                                                                         (m', t') <- unify (m:ms) [HsTyFun (tyCurryFun ts) alpha, HsTyFun beta t]
+                                                                         return $ addMonoVar m' name t'
                          
 inferPat :: PolyEnv -> HsPat -> Stateful (MonoEnv, HsType)
 inferPat p (HsPVar name) = do alpha <- createTv
@@ -235,6 +246,8 @@ inferPat p (HsPAsPat name pat) = do (m, t) <- inferPat p pat
                                     return (addMonoVar m name t, t)
 inferPat p (HsPWildCard) = do alpha <- createTv
                               return (emptyMono, alpha)
+inferPat p (HsPParen pat) = inferPat p pat
+inferPat p (HsPInfixApp left conname right) = inferPat p (HsPApp conname [left, right])
                                       
 
 test expr = niceTy $ snd $ evalState (infer emptyPoly expr) newState
