@@ -1,4 +1,11 @@
-fgo = let fst (x:xs) = x
+feo = let head (x:xs) = x
+          head (x:xs) = xs
+      in head
+
+foo = let id x = x
+      in (id, id)
+         
+ffo = let fst (x:xs) = x
           fst [] = 0
       in fst
 

@@ -76,6 +76,7 @@ getErrors :: Stateful [ErrorMessage]
 getErrors = do G { errors = errors } <- get
                return errors
 
+testMonads :: Stateful [ErrorMessage]
 testMonads = do withLoc (SrcLoc {srcFilename = "foo.hs", srcLine = 1, srcColumn = 1}) $
                         withExpr (HsLit (HsChar 'a')) $
                                  do addError $ OtherMessage "error message FROM SPACE!"
