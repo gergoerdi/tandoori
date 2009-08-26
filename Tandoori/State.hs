@@ -1,4 +1,4 @@
-module Tandoori.State (ErrorMessage(..), ErrorContent(..), Stateful, newState, withLoc, withExpr, addError, getErrors, createTv) where
+module Tandoori.State (ErrorMessage(..), ErrorContent(..), Stateful, StatefulT, newState, withLoc, withExpr, addError, getErrors, createTv) where
 
 import Tandoori    
 import Control.Monad.State
@@ -24,7 +24,8 @@ data ErrorContent = OtherMessage String
                     deriving Show
     
 type Stateful a = State GlobalState a
-
+type StatefulT s t = StateT s (State GlobalState) t
+    
 createTv :: Stateful HsType
 createTv = do state@G{ tvcount = tvcount } <- get
               put state { tvcount = tvcount + 1}

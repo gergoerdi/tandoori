@@ -9,7 +9,7 @@ ffo = let fst (x:xs) = x
           fst [] = 0
       in fst
 
-foo = let zig = 1:zag
+fdo = let zig = 1:zag
           zag = 2:zig
       in zig
 

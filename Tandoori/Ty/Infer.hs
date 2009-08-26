@@ -8,6 +8,7 @@ import Tandoori.Ty.MonoEnv
 import Tandoori.Ty.PolyEnv
 import Tandoori.Ty.Unify
 import Tandoori.Ty.Printer
+import Tandoori.Ty.Instantiate
 import Tandoori.Scope
 import Tandoori.CallGraph
 import Control.Monad.State
@@ -45,7 +46,15 @@ infer p (HsVar (UnQual name)) | isLocal p name = do alpha <- createTv
                                                     return $ name `typedAs` alpha
                               | otherwise      = case getPolyVar p name of
                                                    Nothing -> error $ "Unknown variable " ++ (show name)
-                                                   Just (m, t) -> return (m, t)
+                                                   Just (m, t) -> do t' <- instantiateTy isPoly t
+                                                                     return (m, t')
+                                                       where isPoly t = not (Set.member t monotyvars)
+                                                             monotyvars = Set.unions $ map (tyvarsOf . snd) $ monoVars m
+                                                             tyvarsOf (HsTyCon name) = Set.empty
+                                                             tyvarsOf (HsTyVar name) = Set.singleton name
+                                                             tyvarsOf (HsTyTuple tys) = Set.unions $ map tyvarsOf tys
+                                                             tyvarsOf (HsTyApp ty param) = (tyvarsOf ty) `Set.union` (tyvarsOf param)
+                                                             tyvarsOf (HsTyFun left right) = (tyvarsOf left) `Set.union` (tyvarsOf right)
 infer p (HsLambda srcloc pats expr) = withLoc srcloc $ do (ms, ts) <- maptupM (inferPat p') pats
                                                           let p'' = declareLocals p' (map fst $ concat $ map monoVars ms)
                                                           (m, t) <- infer p'' expr
