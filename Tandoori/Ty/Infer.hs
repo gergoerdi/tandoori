@@ -53,12 +53,7 @@ infer' p (HsVar (UnQual name)) | isLocal p name = do alpha <- createTv
                                                     Just (m, t) -> do t' <- instantiateTy isPoly t
                                                                       return (m, t')
                                                         where isPoly t = not (Set.member t monotyvars)
-                                                              monotyvars = Set.unions $ map (tyvarsOf . snd) $ monoVars m
-                                                              tyvarsOf (HsTyCon name) = Set.empty
-                                                              tyvarsOf (HsTyVar name) = Set.singleton name
-                                                              tyvarsOf (HsTyTuple tys) = Set.unions $ map tyvarsOf tys
-                                                              tyvarsOf (HsTyApp ty param) = (tyvarsOf ty) `Set.union` (tyvarsOf param)
-                                                              tyvarsOf (HsTyFun left right) = (tyvarsOf left) `Set.union` (tyvarsOf right)
+                                                              monotyvars = Set.unions $ map (tyVarsOf . snd) $ monoVars m
 infer' p (HsLambda srcloc pats expr) = withLoc srcloc $ do (ms, ts) <- maptupM (inferPat p') pats
                                                            let p'' = declareLocals p' (map fst $ concat $ map monoVars ms)
                                                            (m, t) <- infer p'' expr
@@ -88,12 +83,13 @@ infer' p (HsLet decls expr) = do let declss = sortDecls decls
                     reduce m t = (m', t)
                         where m' = let tyVars = tyVarsOf t
                                    in filterMonoVars m (\ name ty -> Set.null $ (tyVarsOf ty) `Set.intersection` tyVars)
-                              tyVarsOf :: HsType -> Set.Set HsName
-                              tyVarsOf (HsTyVar x)          = Set.singleton x
-                              tyVarsOf (HsTyFun left right) = (tyVarsOf left) `Set.union` (tyVarsOf right)
-                              tyVarsOf (HsTyTuple tys)      = Set.unions $ map tyVarsOf tys
-                              tyVarsOf (HsTyApp left right) = (tyVarsOf left) `Set.union` (tyVarsOf right)
-                              tyVarsOf (HsTyCon _)          = Set.empty
+
+tyVarsOf :: HsType -> Set.Set HsName
+tyVarsOf (HsTyVar name)       = Set.singleton name
+tyVarsOf (HsTyCon _)          = Set.empty
+tyVarsOf (HsTyFun left right) = (tyVarsOf left) `Set.union` (tyVarsOf right)
+tyVarsOf (HsTyApp left right) = (tyVarsOf left) `Set.union` (tyVarsOf right)
+tyVarsOf (HsTyTuple tys)      = Set.unions $ map tyVarsOf tys
 
 inferRhs p (HsUnGuardedRhs expr) = infer p expr
 inferRhs p (HsGuardedRhss rhss) = do (ms, ts) <- maptupM inferGuardedRhs rhss
