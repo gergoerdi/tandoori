@@ -1,8 +1,6 @@
-module Tandoori.Ty.MonoEnv(MonoEnv, justType, typedAs, (|+|), (|->|), monoVars, combineMonos, removeMonoVars, filterMonoVars, unify) where
+module Tandoori.Ty.MonoEnv(MonoEnv, justType, typedAs, (|+|), (|->|), monoVars, combineMonos, removeMonoVars, filterMonoVars, mapMono) where
 
 import Tandoori
-import Tandoori.State    
-import Tandoori.Ty.Unify
 import Control.Monad.State
 import Language.Haskell.Syntax
 import qualified Data.Map as Map
@@ -45,18 +43,5 @@ removeMonoVars (MonoEnv m) names = MonoEnv $ foldl removeMonoVar m names
 
 filterMonoVars :: MonoEnv -> (VarName -> HsType -> Bool) -> MonoEnv
 filterMonoVars (MonoEnv m) p = MonoEnv $ Map.filterWithKey p m 
-                          
-unify :: [MonoEnv] -> [HsType] -> Stateful (MonoEnv, HsType)
-unify ms tys = do eqs <- monoeqs
-                  alpha <- createTv
-                  let eqs' = map (\ ty -> (alpha, ty)) tys
-                  case mgu (eqs ++ eqs') of
-                    Nothing -> error "Unification failed"
-                    Just subst -> return (combineMonos (map (substMono subst) ms), substTy subst alpha)
-                                  
-    where monoeqs = do let vars = concat $ map monoVars ms
-                           varnames = distinct $ map fst vars
-                       tyvarmap <- liftM Map.fromList $ mapM (\ var -> do tv <- createTv; return (var, tv)) varnames
-                       return $ map (\ (var, ty) -> (fromJust (Map.lookup var tyvarmap), ty)) vars                              
-          substMono subst (MonoEnv m) = MonoEnv $ Map.map (substTy subst) m
-          distinct = Set.toList . Set.fromList
+
+mapMono f (MonoEnv m) = MonoEnv $ Map.map f m                               

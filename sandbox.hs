@@ -9,7 +9,13 @@ import Tandoori.Test
 import Language.Haskell.Syntax
 import Language.Haskell.Pretty
 
-test expr = niceTy $ snd $ evalState (infer emptyPoly expr) newState
-                                     
-main = do expr <- getTestExpr
-          return $ test expr
+test expr = do (_, ty) <- infer emptyPoly expr                     
+               errors <- getErrors
+               return (ty, errors)
+    
+main' = do expr <- getTestExpr
+           let (ty, errors) = evalState (test expr) newState
+           mapM print errors
+           return $ niceTy $ ty
+
+main = liftM prettyPrint main'

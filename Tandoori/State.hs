@@ -1,6 +1,7 @@
-module Tandoori.State (ErrorMessage(..), ErrorContent(..), Stateful, StatefulT, newState, withLoc, withExpr, addError, getErrors, createTv) where
+module Tandoori.State (Stateful, StatefulT, newState, withLoc, withExpr, addError, getErrors, createTv) where
 
-import Tandoori    
+import Tandoori
+import Tandoori.Errors
 import Control.Monad.State
 import Language.Haskell.Syntax
 import qualified Data.Map as Map
@@ -16,13 +17,6 @@ data GlobalState = G { tvcount :: Integer,
 
 newState = G { tvcount = 0, errors = [], loc = Nothing,  expr = Nothing }
 
-data ErrorMessage = ErrorMessage (Maybe SrcLoc) (Maybe HsExp) ErrorContent
-                    deriving Show
-                             
-data ErrorContent = OtherMessage String
-                  | UndefinedConstructor ConName
-                    deriving Show
-    
 type Stateful a = State GlobalState a
 type StatefulT s t = StateT s (State GlobalState) t
     
