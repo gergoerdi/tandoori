@@ -130,7 +130,8 @@ inferPat p (HsPApp conname pats) = do tycon <- tyCon p conname
 inferPat p (HsPTuple pats) = do (ms, ts) <- maptupM (inferPat p) pats
                                 return (combineMonos ms, tyTuple ts)
 inferPat p (HsPList pats) = do (ms, ts) <- maptupM (inferPat p) pats
-                               unify ms ts                               
+                               (m', t') <- unify ms ts
+                               return (m', tyList t')
 inferPat p (HsPAsPat name pat) = do (m, t) <- inferPat p pat
                                     return (m |+| (name, t), t)
 inferPat p (HsPWildCard) = do alpha <- createTv
