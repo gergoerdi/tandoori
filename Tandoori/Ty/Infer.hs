@@ -63,13 +63,11 @@ infer' p (HsVar (UnQual name)) | isLocal p name = newMonoVar
 infer' p (HsLambda srcloc pats expr) = withLoc srcloc $ do (ms, ts) <- maptupM (inferPat p') pats
                                                            let p'' = declareLocals p' (map fst $ concat $ map monoVars ms)
                                                            (m, t) <- infer p'' expr
-                                                           alpha <- createTv
-                                                           beta <- createTv
-                                                           (m', t') <- unify (m:ms) [HsTyFun (tyCurryFun ts) alpha, HsTyFun beta t]
+                                                           (m', t') <- unify (m:ms) [tyCurryFun (ts ++ [t])]
                                                            let m'' = removeMonoVars m' monovars
                                                            return (m'', t')
     where monovars = concat $ map boundNamesOfPatInt pats
-          p' = removePolyVars p monovars               
+          p' = removePolyVars p monovars
 infer' p (HsParen expr) = infer p expr
 infer' p inf@(HsInfixApp _ _ _) = infer p (infixToPrefix inf)
 infer' p (HsLet decls expr) = do let declss = sortDecls decls
@@ -77,12 +75,12 @@ infer' p (HsLet decls expr) = do let declss = sortDecls decls
                                  infer p' expr
                                        
 inferDeclGroup :: PolyEnv -> [HsDecl] -> Stateful PolyEnv
-inferDeclGroup p decls = do let newnamesInt = concat $ map boundNamesOfDeclInt decls
-                                newnamesExt = concat $ map boundNamesOfDeclExt decls
-                                p' = removePolyVars p newnamesInt
-                            ms <- mapM (inferDef (declareLocals p' newnamesExt)) decls
+                  -- TODO: This is broken; newnamesInt shouldn't be here
+inferDeclGroup p decls = do let groupnames = concat $ map boundNamesOfDeclExt decls                                
+                            ms <- mapM (inferDef' groupnames) decls
                             (m, _) <- unify ms []
                             let m' = removeMonoVars m newnamesExt
+                                p' = removePolyVars p newnamesExt
                                 definePoly p name = addPolyVar p name (reduce m' (fromJust $ m |->| name))
                                 p'' = foldl definePoly p' newnamesExt
                             return p''
@@ -90,6 +88,9 @@ inferDeclGroup p decls = do let newnamesInt = concat $ map boundNamesOfDeclInt d
           reduce m t = (m', t)
               where m' = let tyVars = tyVarsOf t
                          in filterMonoVars m (\ name ty -> Set.null $ (tyVarsOf ty) `Set.intersection` tyVars)
+          inferDef' groupnames decl = inferDef p'' decl
+              where p' = removePolyVars p $ boundNamesOfDeclInt decl
+                    p'' = declareLocals p' groupnames                    
 
 inferRhs p (HsUnGuardedRhs expr) = infer p expr
 inferRhs p (HsGuardedRhss rhss) = do (ms, ts) <- maptupM inferGuardedRhs rhss
@@ -154,8 +155,5 @@ unify ms tys = do eqs <- monoeqs
                            varnames = distinct $ map fst vars
                        tyvarmap <- liftM Map.fromList $ mapM (\ var -> do tv <- createTv; return (var, tv)) varnames
                        return $ map (\ (var, ty) -> (fromJust $ Map.lookup var tyvarmap, ty)) vars
-                       -- return $ uncurry zip $ applyFst removeNothing $ unzip $ map (\ (var, ty) -> (Map.lookup var tyvarmap, ty)) vars
           distinct = Set.toList . Set.fromList
-          removeNothing = map fromJust . filter isJust
-          applyFst f (x, y) = (f x, y)                                                        
           substMono subst m = mapMono (substTy subst) m

@@ -6,7 +6,7 @@ import Tandoori.Ty.MonoEnv
 import Language.Haskell.Syntax
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-    
+
 data PolyEnv = PolyEnv { polyvarmap :: Map.Map VarName (MonoEnv, HsType),
                          conmap :: Map.Map ConName HsType,
                          locals :: Set.Set VarName
