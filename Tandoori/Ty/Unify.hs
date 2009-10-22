@@ -7,6 +7,8 @@ import Control.Monad.State
 import qualified Data.Map as Map
 import Data.Maybe
 
+import Tandoori.Kludge.Show
+    
 import HsTypes
 import SrcLoc
 
@@ -33,7 +35,18 @@ substTy s ty@(HsTyVar name) = case getSubst s name of
                                 Just ty' -> substTy s ty'
 substTy s (HsListTy lt)     = HsListTy $ lsubstTy s lt
 substTy s (HsTupleTy b lts) = HsTupleTy b $ map (lsubstTy s) lts
+substTy s (HsParTy lty)     = HsParTy (lsubstTy s lty)
 
+substTy s (HsBangTy _ _)        = error "substTy: TODO: Bang"
+substTy s (HsForAllTy _ _ _ _)  = error "substTy: TODO: HsForAll"
+substTy s (HsPArrTy _)          = error "substTy: TODO: PArrTy"
+substTy s (HsKindSig _ _)       = error "substTy: TODO: KindSig"
+substTy s (HsNumTy _)           = error "substTy: TODO: NumTy"
+substTy s (HsOpTy _ _ _)        = error "substTy: TODO: OpTy"
+substTy s (HsSpliceTy _)        = error "substTy: TODO: Splice"
+substTy s (HsPredTy _ )         = error "substTy: TODO: Pred"
+substTy s ty                    = error $ show ty
+                              
                               
 mgu :: [(TanType, TanType)] -> Either [(TanType, TanType)] Substitution
 mgu []                                                                            = Right $ emptySubst

@@ -51,8 +51,10 @@ instantiateTyM isPoly (HsFunTy lx ly)                     = do lx' <- instantiat
 instantiateTyM isPoly (HsListTy lty)                      = do lty' <- instantiateLTyM isPoly lty
                                                                return $ HsListTy lty'
 instantiateTyM isPoly (HsTupleTy box ltys)                = do ltys' <- mapM (instantiateLTyM isPoly) ltys
-                                                               return (HsTupleTy box ltys')
-
+                                                               return $ HsTupleTy box ltys'
+instantiateTyM isPoly (HsParTy lty)                       = do lty' <- instantiateLTyM isPoly lty
+                                                               return $ HsParTy lty'
+                                                                      
 instantiateTy :: (TvName -> Bool) -> TanType -> Stateful TanType
 instantiateTy isPoly ty = evalStateT (instantiateTyM isPoly ty) newInstantiator
 

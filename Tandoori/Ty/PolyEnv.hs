@@ -13,8 +13,9 @@ data PolyEnv = PolyEnv { polyvarmap :: Map.Map VarName (MonoEnv, TanType),
                          scopelocals :: Set.Set VarName
                        }
 
-emptyPoly :: PolyEnv
-emptyPoly = PolyEnv{polyvarmap = Map.empty, conmap = Map.empty, locals = Set.empty, scopelocals = Set.empty}
+mkPoly :: [(ConName, TanType)] -> PolyEnv
+mkPoly cons = PolyEnv{polyvarmap = Map.empty, conmap = conmap, locals = Set.empty, scopelocals = Set.empty}
+    where conmap = Map.fromList cons
 
 isCon :: PolyEnv -> ConName -> Bool
 isCon PolyEnv{conmap = conmap} name = Map.member name conmap

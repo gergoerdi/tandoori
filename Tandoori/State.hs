@@ -1,4 +1,4 @@
-module Tandoori.State (Stateful, StatefulT, mkState, mkTv, addError, getErrors) where
+module Tandoori.State (Stateful, StatefulT, mkState, mkTv, addError, getErrors, withLoc) where
 
 import Tandoori
 import Tandoori.Errors

@@ -34,7 +34,7 @@ tyCon p name | name == dataConName consDataCon = do alpha <- mkTv
 tyCon p name                                   = case getCon p name of
                                                    Nothing -> do addError (UndefinedCon name)
                                                                  mkTv
-                                                   Just ty -> return ty
+                                                   Just ty -> instantiateTy (const True) ty
                              
 -- tyCon _ name | name == list_cons_name = do tv <- createTv
 --                                            return $ tyCurryFun [tv, tyList tv, tyList tv]
@@ -48,7 +48,8 @@ genLoc x = mkGeneralLocated "(internal)" x
                                  
 infer :: PolyEnv -> (Located TanExpr) -> Stateful (MonoEnv, TanType)
 -- infer p expr = withExpr expr (infer' p expr)
-infer p (L srcloc expr) = infer' p expr
+infer p (L srcloc expr) | isGoodSrcSpan srcloc = withLoc srcloc $ infer' p expr
+                        | otherwise            = infer' p expr
 
 infer' :: PolyEnv -> TanExpr -> Stateful (MonoEnv, TanType)
 infer' p (HsLit lit)                       = return $ justType $ typeOfLit lit
