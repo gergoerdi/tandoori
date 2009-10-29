@@ -1,15 +1,21 @@
 module Tandoori.Ty.PolyEnv where
---module Tandoori.Ty.PolyEnv (PolyEnv, emptyPoly, getCon, getPolyVar, addPolyVar, addUserDecls, getUserDecl, removePolyVars, isLocal, declareLocals) where
+--module Tandoori.Ty.PolyEnv (PolyEnv, mkPoly, getCon, getPolyVar, addPolyVar, addUserDecls, getUserDecl, removePolyVars, isLocal, declareLocals) where
 
 import Tandoori
 import Tandoori.Ty
 import Tandoori.Ty.MonoEnv
+import Tandoori.Ty.ShowTy
+import Tandoori.Ty.Pretty
+
+import Text.PrettyPrint.Tabulator    
+    
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
 import SrcLoc
 import HsBinds
 import Name
+import Outputable
     
 data PolyEnv = PolyEnv { polyvarmap :: Map.Map VarName (MonoEnv, TanType),
                          conmap :: Map.Map ConName TanType,
@@ -17,6 +23,22 @@ data PolyEnv = PolyEnv { polyvarmap :: Map.Map VarName (MonoEnv, TanType),
                          scopelocals :: Set.Set VarName,
                          userdecls :: Map.Map VarName TanType
                        }
+             
+printPolyEnv :: PolyEnv -> IO ()             
+printPolyEnv p = do
+                    print $ tabTy (rowsDecl ++ rowsInfer)
+                          
+    where showNameShort qname = occNameString $ nameOccName qname
+          showTy ty = show $ prettifyTy ty
+                                
+          rowFromInfer name (m, ty) = (showNameShort name, showTy ty)
+          rowFromDecl name ty = (showNameShort name, showTy ty)
+
+          rowTy (sname, sty) = [sname, "::", sty]
+          tabTy rows = fromRows $ map rowTy rows
+                                
+          rowsInfer = map (uncurry rowFromInfer) $ Map.toList $ polyvarmap p
+          rowsDecl = map (uncurry rowFromDecl) $ Map.toList $ userdecls p
 
 mkPoly :: [(ConName, TanType)] -> PolyEnv
 mkPoly cons = PolyEnv{polyvarmap = Map.empty, conmap = conmap, locals = Set.empty, scopelocals = Set.empty, userdecls = Map.empty}

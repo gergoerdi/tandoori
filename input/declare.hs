@@ -2,6 +2,9 @@ map' :: (Int -> a) -> [Int] -> [a]
 map' f [] = []
 map' f (x:xs) = (f x):(map' f xs)
 
+map f [] = []
+map f (x:xs) = (f x):(map f xs)
+                
 id :: Int -> a
 id 1 = 1
                 

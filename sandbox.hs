@@ -11,13 +11,20 @@ import RdrHsSyn
 import Outputable
 import IOEnv
 
+import System.Environment    
+    
 import Tandoori.Ty.Infer
 import Tandoori.Ty.PolyEnv
 import Tandoori.Ty
 import Tandoori.Ty.DataType
+import Tandoori.Ty.ShowTy
+
+import qualified Data.Map as Map
+    
+import IPPrint
     
 src_filename = "input/declare.hs"
-               
+
 typecheckMod mod = runDyn $ do
                      env <- getSession
                      (tydecls, group) <- liftIO $ runScope env mod
@@ -29,9 +36,23 @@ typecheckMod mod = runDyn $ do
                               return $ (p', errors)
                      return $ evalState infer mkState
     
-main = do mod <- parseMod src_filename
-          (p, errors) <- typecheckMod mod
-          if not(null errors)
-            then mapM print errors
-            else return []
-          return p
+main' [src_filename] = do mod <- parseMod src_filename
+                          (p, errors) <- typecheckMod mod
+                          if not(null errors)
+                            then mapM_ print errors
+                            else return ()
+                          printPolyEnv p
+                          return p
+                          --pprint p
+
+main' _ = error "whatever"                                 
+
+main = do args <- getArgs
+          main' args
+
+test = do p <- main' ["input/declare.hs"]
+          let tyFoo = snd $ snd $ (Map.toList $ polyvarmap p)!!0
+              tyId = snd $ (Map.toList $ userdecls p)!!1
+              HsTyVar nGen = tyFoo
+              HsForAllTy _ _ _ (L _ (HsFunTy _ (L _ (HsTyVar nUser)))) = tyId
+          return (tyFoo, tyId)

@@ -142,14 +142,14 @@ deriving instance Show (IE Name)
 deriving instance Show PolyEnv
 deriving instance Show MonoEnv         
 
-instance (Show (HsType Name)) where
-    -- show (HsTyVar x) = showNameShort x
-    -- show (HsFunTy ty ty') = "(" ++ unwords [(show ty), "->", (show  ty')] ++ ")"
-    -- show (HsTupleTy boxity tys) = joinWith ", " $ map show tys
-    --     where joinWith sep [] = []
-    --           joinWith sep [x] = x
-    --           joinWith sep (x:xs) = x ++ sep ++ (joinWith sep xs)
-    show ty = showSDoc $ ppr ty
+-- instance (Show (HsType Name)) where
+--     -- show (HsTyVar x) = showNameShort x
+--     -- show (HsFunTy ty ty') = "(" ++ unwords [(show ty), "->", (show  ty')] ++ ")"
+--     -- show (HsTupleTy boxity tys) = joinWith ", " $ map show tys
+--     --     where joinWith sep [] = []
+--     --           joinWith sep [x] = x
+--     --           joinWith sep (x:xs) = x ++ sep ++ (joinWith sep xs)
+--     show ty = showSDoc $ ppr ty
          
 instance (Show TyCon) where
     show _ = "TyCon"
