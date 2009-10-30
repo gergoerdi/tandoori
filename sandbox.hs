@@ -39,11 +39,10 @@ typecheckMod mod = runDyn $ do
 main' [src_filename] = do mod <- parseMod src_filename
                           (p, errors) <- typecheckMod mod
                           if not(null errors)
-                            then mapM_ print errors
+                            then mapM_ (\ error -> printErrs $ ppr error defaultUserStyle) errors
                             else return ()
                           printPolyEnv p
                           return p
-                          --pprint p
 
 main' _ = error "whatever"                                 
 
@@ -52,7 +51,8 @@ main = do args <- getArgs
 
 test = do p <- main' ["input/declare.hs"]
           let tyFoo = snd $ snd $ (Map.toList $ polyvarmap p)!!0
-              tyId = snd $ (Map.toList $ userdecls p)!!1
+              ltyId = snd $ (Map.toList $ userdecls p)!!1
+              tyId = unLoc ltyId
               HsTyVar nGen = tyFoo
               HsForAllTy _ _ _ (L _ (HsFunTy _ (L _ (HsTyVar nUser)))) = tyId
           return (tyFoo, tyId)

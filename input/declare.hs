@@ -14,3 +14,5 @@ foo = let id :: String -> String
 
 justfirst :: a -> b -> c
 justfirst x y = x  
+
+bar f = (f, f f)                

@@ -21,7 +21,7 @@ data PolyEnv = PolyEnv { polyvarmap :: Map.Map VarName (MonoEnv, TanType),
                          conmap :: Map.Map ConName TanType,
                          locals :: Set.Set VarName,
                          scopelocals :: Set.Set VarName,
-                         userdecls :: Map.Map VarName TanType
+                         userdecls :: Map.Map VarName (Located TanType)
                        }
              
 printPolyEnv :: PolyEnv -> IO ()             
@@ -29,7 +29,7 @@ printPolyEnv p = do
                     print $ tabTy (rowsDecl ++ rowsInfer)
                           
     where showNameShort qname = occNameString $ nameOccName qname
-          showTy ty = show $ prettifyTy ty
+          showTy ty = show $ prettyTy ty
                                 
           rowFromInfer name (m, ty) = (showNameShort name, showTy ty)
           rowFromDecl name ty = (showNameShort name, showTy ty)
@@ -38,7 +38,7 @@ printPolyEnv p = do
           tabTy rows = fromRows $ map rowTy rows
                                 
           rowsInfer = map (uncurry rowFromInfer) $ Map.toList $ polyvarmap p
-          rowsDecl = map (uncurry rowFromDecl) $ Map.toList $ userdecls p
+          rowsDecl = map (uncurry rowFromDecl) $ map (\ (name, lty) ->  (name, unLoc lty)) $ Map.toList $ userdecls p
 
 mkPoly :: [(ConName, TanType)] -> PolyEnv
 mkPoly cons = PolyEnv{polyvarmap = Map.empty, conmap = conmap, locals = Set.empty, scopelocals = Set.empty, userdecls = Map.empty}
@@ -56,12 +56,12 @@ getPolyVar p = flip Map.lookup (polyvarmap p)
 addPolyVar :: PolyEnv -> VarName -> (MonoEnv, TanType) -> PolyEnv
 addPolyVar p name typing = p{polyvarmap = Map.insert name typing (polyvarmap p)}
 
-addUserDecls :: PolyEnv -> [Sig Name] -> PolyEnv
+addUserDecls :: PolyEnv -> [LSig Name] -> PolyEnv
 addUserDecls p sigs = foldl addDecl p sigs
-    where addDecl p (TypeSig (L _ name) (L _ ty)) = p{userdecls = Map.insert name ty (userdecls p)}
-          addDecl p _                             = p
+    where addDecl p (L srcloc (TypeSig (L _ name) (L _ ty))) = p{userdecls = Map.insert name (L srcloc ty) (userdecls p)}
+          addDecl p _                                        = p
 
-getUserDecl :: PolyEnv -> VarName -> Maybe TanType
+getUserDecl :: PolyEnv -> VarName -> Maybe (Located TanType)
 getUserDecl p = flip Map.lookup (userdecls p)                                                    
                                                             
 removePolyVars :: PolyEnv -> [VarName] -> PolyEnv
