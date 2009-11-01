@@ -6,16 +6,12 @@ import Tandoori.Ty
 import Tandoori.Ty.MonoEnv
 import Tandoori.Ty.ShowTy
 import Tandoori.Ty.Pretty
-
+import Tandoori.GHC.Internals
+    
 import Text.PrettyPrint.Tabulator    
     
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-
-import SrcLoc
-import HsBinds
-import Name
-import Outputable
     
 data PolyEnv = PolyEnv { polyvarmap :: Map.Map VarName (MonoEnv, TanType),
                          conmap :: Map.Map ConName TanType,

@@ -1,15 +1,7 @@
 module Tandoori.Ty where
 
 import Tandoori
-    
-import HsTypes
-import BasicTypes
-import SrcLoc
-import TysWiredIn (intTyConName, charTyConName, boolTyConName, listTyConName, nilDataCon, consDataCon)
-import PrelNames (stringTyConName)
-import HsLit
-import Name (Name, isTyConName)
-import DataCon (dataConName)
+import Tandoori.GHC.Internals
     
 import qualified Data.Set as Set
     

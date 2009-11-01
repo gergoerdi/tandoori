@@ -3,15 +3,11 @@
 module Tandoori.Errors (ErrorLocation(..), ErrorSource(..), ErrorMessage(..), ErrorContent(..)) where
 
 import Tandoori
-
-import HsExpr
-import SrcLoc
-import Outputable
-import Name
-    
-import Data.Maybe
+import Tandoori.GHC.Internals    
 import Tandoori.Ty.MonoEnv
 import Tandoori.Ty.Pretty
+    
+import Data.Maybe
 
 pshow x = showSDoc $ ppr x
 

@@ -12,17 +12,10 @@ import Control.Monad.State
 import Data.Maybe
 import qualified Data.Set as Set
 import qualified Data.Map as Map
+
+import Tandoori.GHC.Internals
     
-import HsExpr
-import HsTypes
-import HsPat
-import SrcLoc
-import HsLit
-import Name (Name, isDataConName)
-import HsBinds
 import Bag (bagToList)
-import TysWiredIn (listTyConName, nilDataCon, consDataCon)
-import DataCon (dataConName)
     
 tyCon :: PolyEnv -> ConName -> Stateful TanType
 tyCon p name | name == dataConName nilDataCon  = do alpha <- mkTv

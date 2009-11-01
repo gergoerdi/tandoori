@@ -1,5 +1,5 @@
 module Tandoori.Ty.MonoEnv where
---module Tandoori.Ty.MonoEnv(MonoEnv, justType, typedAs, (|+|), (|->|), monoVars, combineMonos, removeMonoVars, filterMonoVars, mapMono) where
+--module Tandoori.Ty.MonoEnv(MonoEnv, justType, typedAs, monoVars, combineMonos, removeMonoVars, filterMonoVars, mapMono) where
 
 import Tandoori
 import Control.Monad.State

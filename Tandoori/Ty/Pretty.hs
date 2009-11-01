@@ -1,11 +1,8 @@
 module Tandoori.Ty.Pretty(prettyTy, prettyTyM, runPretty) where
 
-import HsTypes
-import Data.Char
-import SrcLoc
-import Name
-import FastString
+import Tandoori.GHC.Internals
 
+import Data.Char
 import Control.Monad.State    
 import qualified Data.Map as Map
 

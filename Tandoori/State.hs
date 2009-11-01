@@ -2,17 +2,8 @@ module Tandoori.State (Stateful, StatefulT, mkState, mkTv, addError, getErrors, 
 
 import Tandoori
 import Tandoori.Errors
-    
-import HsTypes
-import Name
-import Unique
-import FastString
-import HsExpr
-import SrcLoc (SrcSpan, mkSrcSpan, mkSrcLoc)
-import Outputable
-import qualified SrcLoc as L
-    
-import qualified HsLit as HL
+
+import Tandoori.GHC.Internals
     
 import Control.Monad.State
 import qualified Data.Map as Map
@@ -21,14 +12,14 @@ import qualified Data.Set as Set
     
 data GlobalState = G { tvcount :: Int,
                        errors  :: [ErrorMessage],
-                       loc :: SrcSpan,
+                       srcspan :: SrcSpan,
                        src :: Maybe ErrorSource
                      }
                    -- deriving Show
 
 mkState = G { tvcount = 0,
               errors = [],
-              loc = L.noSrcSpan,
+              srcspan = noSrcSpan,
               src = Nothing
             }
 
@@ -45,20 +36,20 @@ mkTv = do state@G{tvcount = tvcount} <- get
 
 
                  
-getLoc :: Stateful SrcSpan
-getLoc = do G { loc = loc } <- get
-            return loc
+getSpan :: Stateful SrcSpan
+getSpan = do G { srcspan = srcspan } <- get
+             return srcspan
 
-setLoc :: SrcSpan -> Stateful ()
-setLoc loc' = do state <- get
-                 put state{loc = loc'}
+setSpan :: SrcSpan -> Stateful ()
+setSpan srcspan = do state <- get
+                     put state{srcspan = srcspan}
                    
 withLoc :: SrcSpan -> Stateful a -> Stateful a
-withLoc loc' m = do loc <- getLoc
-                    setLoc loc'
-                    result <- m
-                    setLoc loc
-                    return result                  
+withLoc srcspan' m = do srcspan <- getSpan
+                        setSpan srcspan'
+                        result <- m
+                        setSpan srcspan
+                        return result                  
 
 getSrc :: Stateful (Maybe ErrorSource)
 getSrc = do G { src = src } <- get
@@ -85,9 +76,9 @@ setSrc (Just src') = do state <- get
                           
 addError :: ErrorContent -> Stateful ()
 addError content = do state@G{errors = errors} <- get
-                      loc <- getLoc
+                      span <- getSpan
                       src <- getSrc
-                      let msg = ErrorMessage (ErrorLocation loc src) content
+                      let msg = ErrorMessage (ErrorLocation span src) content
                       put state{ errors = msg:errors}
 
 getErrors :: Stateful [ErrorMessage]

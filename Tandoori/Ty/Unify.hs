@@ -8,10 +8,8 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Maybe
 
-import Tandoori.Kludge.Show
-    
-import HsTypes
-import SrcLoc
+import Tandoori.Kludge.Show    
+import Tandoori.GHC.Internals
 
 newtype Substitution = S (Map.Map TvName TanType)
 

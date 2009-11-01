@@ -3,9 +3,7 @@ module Tandoori.Ty.Instantiate (instantiateTy, instantiateTyM, newInstantiator, 
 import Tandoori
 import Tandoori.State
 import Tandoori.Ty
-    
-import SrcLoc    
-import HsTypes
+import Tandoori.GHC.Internals
     
 import qualified Data.Map as Map
 import Control.Monad.State

@@ -2,9 +2,7 @@
 
 module Tandoori.Ty.ShowTy(showTy) where
 
-import HsTypes
-import SrcLoc
-import Name
+import Tandoori.GHC.Internals
 
 data Context = C { isLeftOfFun :: Bool }                 
              

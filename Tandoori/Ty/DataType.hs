@@ -1,12 +1,9 @@
 module Tandoori.Ty.DataType (constructorsFromDecl) where
 
-import HsDecls
-import HsTypes
-import Name
-import SrcLoc
-    
 import Tandoori
-import Tandoori.Ty
+import Tandoori.Ty   
+import Tandoori.GHC.Internals
+    
     
 constructorsFromDecl :: TyClDecl Name -> [(ConName, TanType)]
 constructorsFromDecl decl | isDataDecl decl = map (\ con -> (unLoc $ con_name con, tyCon con)) condecls
