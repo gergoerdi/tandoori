@@ -1,28 +1,38 @@
-foo = let fst (x:xs) = x
+foo = let x = 5
+      in let zig x = zag x
+             zag y = zig x
+         in zag
+                 
+
+fco = let fst (x:xs) = x
       in fst 5
 
 fbo = \ x -> y
 
-fco = let head (x:xs) = x
+fbo = let head (x:xs) = x
           head (x:xs) = xs
       in head
 
 fao = let id x = x
       in (id, id)
 
-fao = let fst (x, y) = x
-          fst [] = 0
-      in fst
-         
-fao = let fst (x:xs) = x
+fzo = let fst (x, y) = x
           fst [] = 0
       in fst
 
-fao = let zig = 1:zag
+fco =let fst1 (x, y) = 1
+         fst2 [] = 0
+     in (fst1, fst2)
+         
+fbo = let fst (x:xs) = x
+          fst [] = 0
+      in fst
+
+fbo = let zig = 1:zag
           zag = 2:zig
       in zig
 
-fdo = let (a, b) = ([], [])
+fbo = let (a, b) = ([], [])
           ones = 1:ones
       in ones
 

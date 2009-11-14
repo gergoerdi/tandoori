@@ -1,150 +1,173 @@
-module Tandoori.Ty.Infer(infer) where
+module Tandoori.Ty.Infer where
 
 import Tandoori
-import Tandoori.Test
 import Tandoori.State    
 import Tandoori.Errors
 import Tandoori.Ty
 import Tandoori.Ty.MonoEnv
 import Tandoori.Ty.PolyEnv
 import Tandoori.Ty.Unify
-import Tandoori.Ty.Printer
 import Tandoori.Ty.Instantiate
-import Tandoori.Scope
-import Tandoori.CallGraph
 import Control.Monad.State
-import Language.Haskell.Syntax
 import Data.Maybe
 import qualified Data.Set as Set
 import qualified Data.Map as Map
     
-tyCon :: PolyEnv -> HsQName -> Stateful HsType
-tyCon p (UnQual name)                 = case getCon p name of
-                                          Nothing -> do addError (UndefinedCon name)
-                                                        createTv
-                                          Just ty -> return ty
-tyCon _ name | name == list_cons_name = do tv <- createTv
-                                           return $ tyCurryFun [tv, tyList tv, tyList tv]
+import HsExpr
+import HsTypes
+import HsPat
+import SrcLoc
+import HsLit
+import Name (Name, isDataConName)
+import HsBinds
+import Bag (bagToList)
+import TysWiredIn (listTyConName, nilDataCon, consDataCon)
+import DataCon (dataConName)
+    
+tyCon :: PolyEnv -> ConName -> Stateful TanType
+tyCon p name | name == dataConName nilDataCon  = do alpha <- mkTv
+                                                    return $ tyList alpha
+                                                          
+tyCon p name | name == dataConName consDataCon = do alpha <- mkTv
+                                                    return $ tyCurryFun [alpha, tyList alpha, tyList alpha]
+                                                          
+tyCon p name                                   = case getCon p name of
+                                                   Nothing -> do addError (UndefinedCon name)
+                                                                 mkTv
+                                                   Just ty -> return ty
+                             
+-- tyCon _ name | name == list_cons_name = do tv <- createTv
+--                                            return $ tyCurryFun [tv, tyList tv, tyList tv]
 
 
 maptupM :: (Monad m) => (a -> m (b, c)) -> [a] -> m ([b], [c])
 maptupM action items = do results <- mapM action items
                           return (map fst results, map snd results)
 
+genLoc x = mkGeneralLocated "(internal)" x
                                  
-infer :: PolyEnv -> HsExp -> Stateful (MonoEnv, HsType)
-infer p expr = withExpr expr (infer' p expr)
+infer :: PolyEnv -> (Located TanExpr) -> Stateful (MonoEnv, TanType)
+-- infer p expr = withExpr expr (infer' p expr)
+infer p (L srcloc expr) = infer' p expr
 
-infer' :: PolyEnv -> HsExp -> Stateful (MonoEnv, HsType)
-infer' p (HsLit lit) = return $ justType $ typeOfLit lit
-infer' p (HsList exprs) = do (ms, ts) <- maptupM (infer p) exprs
-                             (m, t) <- unify ms ts
-                             return (m, tyList t)
-infer' p (HsTuple exprs) = do (ms, ts) <- maptupM (infer p) exprs
-                              return (combineMonos ms, tyTuple ts)
-infer' p (HsCon name) = liftM justType (tyCon p name)
-infer' p (HsApp fun param) = do (m1, ty1) <- infer p fun
-                                (m2, ty2) <- infer p param
-                                alpha <- createTv
-                                (m, ty) <- unify [m1, m2] [ty1, HsTyFun ty2 alpha]
-                                case ty of
-                                  HsTyFun ty3 ty4 -> return (m, ty4)
-                                  _ -> do beta <- createTv
-                                          return (m, beta)
-infer' p (HsVar (UnQual name)) | isLocal p name = newMonoVar
-                               | otherwise      = case getPolyVar p name of
-                                                    Nothing     -> do addError (UndefinedVar name)
-                                                                      newMonoVar
-                                                    Just (m, t) -> do t' <- instantiateTy isPoly t
-                                                                      return (m, t')
-                                                        where isPoly t = not (Set.member t monotyvars)
-                                                              monotyvars = Set.unions $ map (tyVarsOf . snd) $ monoVars m
-    where newMonoVar = do alpha <- createTv; return $ name `typedAs` alpha
-infer' p (HsLambda srcloc pats expr) = withLoc srcloc $ do (ms, ts) <- maptupM (inferPat p') pats
-                                                           let p'' = declareLocals p' (map fst $ concat $ map monoVars ms)
-                                                           (m, t) <- infer p'' expr
-                                                           (m', t') <- unify (m:ms) [tyCurryFun (ts ++ [t])]
-                                                           let m'' = removeMonoVars m' monovars
-                                                           return (m'', t')
-    where monovars = concat $ map boundNamesOfPatInt pats
-          p' = removePolyVars p monovars
-infer' p (HsParen expr) = infer p expr
-infer' p inf@(HsInfixApp _ _ _) = infer p (infixToPrefix inf)
-infer' p (HsLet decls expr) = do let declss = sortDecls decls
-                                 p' <- foldM inferDeclGroup p declss
-                                 infer p' expr
-                                       
-inferDeclGroup :: PolyEnv -> [HsDecl] -> Stateful PolyEnv
-                  -- TODO: This is broken; newnamesInt shouldn't be here
-inferDeclGroup p decls = do let groupnames = concat $ map boundNamesOfDeclExt decls                                
-                            ms <- mapM (inferDef' groupnames) decls
-                            (m, _) <- unify ms []
-                            let m' = removeMonoVars m newnamesExt
-                                p' = removePolyVars p newnamesExt
-                                definePoly p name = addPolyVar p name (reduce m' (fromJust $ m |->| name))
-                                p'' = foldl definePoly p' newnamesExt
-                            return p''
-    where reduce :: MonoEnv -> HsType -> (MonoEnv, HsType)
-          reduce m t = (m', t)
-              where m' = let tyVars = tyVarsOf t
-                         in filterMonoVars m (\ name ty -> Set.null $ (tyVarsOf ty) `Set.intersection` tyVars)
-          inferDef' groupnames decl = inferDef p'' decl
-              where p' = removePolyVars p $ boundNamesOfDeclInt decl
-                    p'' = declareLocals p' groupnames                    
+infer' :: PolyEnv -> TanExpr -> Stateful (MonoEnv, TanType)
+infer' p (HsLit lit)                       = return $ justType $ typeOfLit lit
+infer' p (HsOverLit overlit)               = return $ justType $ typeOfOverLit overlit
+infer' p (HsVar name) | isDataConName name = liftM justType (tyCon p name)
+                                             
+infer' p (ExplicitList _ lexprs)           = do (ms, ts) <- maptupM (infer p) lexprs
+                                                (m, t) <- unify ms ts
+                                                return (m, tyList t)
+infer' p (ExplicitTuple lexprs _)          = do (ms, ts) <- maptupM (infer p) lexprs
+                                                return (combineMonos ms, tyTuple ts)
+                                                       
+infer' p (HsApp lfun lparam)               = do (m1, ty1) <- infer p lfun
+                                                (m2, ty2) <- infer p lparam
+                                                alpha <- mkTv
+                                                (m, ty) <- unify [m1, m2] [ty1, HsFunTy (genLoc ty2) (genLoc alpha)]
+                                                case ty of
+                                                  HsFunTy (L _ ty3) (L _ ty4) -> return (m, ty4)
+                                                  _                           -> do beta <- mkTv
+                                                                                    return (m, beta)
+                                                                 
+infer' p (HsLam (MatchGroup lmatches _))   = do (ms, ts) <- maptupM (inferMatch p) matches
+                                                unify ms ts
+    where matches = map unLoc lmatches
+                
+infer' p (HsVar name) | isLocal p name     = newMonoVar
+                      | otherwise          = case getPolyVar p name of
+                                               Nothing     -> do addError (UndefinedVar name)
+                                                                 newMonoVar
+                                               Just (m, t) -> do t' <- instantiateTy isPoly t
+                                                                 return (m, t')
+                                                   where isPoly t = not (Set.member t monotyvars)
+                                                         monotyvars = Set.unions $ map (tyVarsOf . snd) $ monoVars m
+    where newMonoVar = do alpha <- mkTv; return $ name `typedAs` alpha
+                              
+infer' p (HsLet binds lexpr)               = do p' <- inferLocalBinds p binds
+                                                infer p' lexpr
 
-inferRhs p (HsUnGuardedRhs expr) = infer p expr
-inferRhs p (HsGuardedRhss rhss) = do (ms, ts) <- maptupM inferGuardedRhs rhss
-                                     unify ms ts
-    where inferGuardedRhs (HsGuardedRhs srcloc expr guard) = withLoc srcloc $ do (m, t) <- infer p expr
-                                                                                 (m', t') <- infer p guard
-                                                                                 (m'', t'') <- unify [m'] [t', tyBool]
-                                                                                 unify [m, m''] [t]
-                                     
-inferDef :: PolyEnv -> HsDecl -> Stateful MonoEnv
-inferDef p (HsPatBind srcloc pat rhs wheres) = withLoc srcloc $ do (m, t) <- inferPat p pat
-                                                                   let p' = declareLocals p (map fst $ monoVars m)
-                                                                   (m', t') <- inferRhs p' rhs
-                                                                   (m'', t'') <- unify [m, m'] [t, t']
-                                                                   return m''
-inferDef p (HsFunBind matches) = do ms <- mapM (inferMatch p) matches
-                                    (m, _) <- unify ms []
-                                    return m
+infer' p (OpApp left op fixity right)      = infer' p $ HsApp (genLoc $ HsApp op left) right
+-- TODO:
+infer' p (NegApp expr negfun)              = error "infer': TODO: NegApp"
+infer' p (HsPar lexpr)                     = infer p lexpr
 
-inferMatch :: PolyEnv -> HsMatch -> Stateful MonoEnv
-inferMatch p (HsMatch srcloc name pats rhs wheres) = withLoc srcloc $ do (ms, ts) <- maptupM (inferPat p) pats
-                                                                         let p' = declareLocals p (map fst $ concat $ map monoVars ms)
-                                                                         (m, t) <- inferRhs p' rhs
-                                                                         alpha <- createTv
-                                                                         beta <- createTv
-                                                                         (m', t') <- unify (m:ms) [HsTyFun (tyCurryFun ts) alpha, HsTyFun beta t]
-                                                                         return $ m' |+| (name, t')
-                         
-inferPat :: PolyEnv -> HsPat -> Stateful (MonoEnv, HsType)
-inferPat p (HsPVar name) = do alpha <- createTv
-                              return $ name `typedAs` alpha
-inferPat p (HsPLit lit) = return $ justType $ typeOfLit lit
-inferPat p (HsPApp conname pats) = do tycon <- tyCon p conname
-                                      (ms, ts) <- maptupM (inferPat p) pats
-                                      alpha <- createTv
-                                      (m, t) <- unify ms [tycon, tyCurryFun (ts ++ [alpha])]
-                                      return (m, last (tyUncurryFun t))
-inferPat p (HsPTuple pats) = do (ms, ts) <- maptupM (inferPat p) pats
-                                return (combineMonos ms, tyTuple ts)
-inferPat p (HsPList pats) = do (ms, ts) <- maptupM (inferPat p) pats
-                               (m', t') <- unify ms ts
-                               return (m', tyList t')
-inferPat p (HsPAsPat name pat) = do (m, t) <- inferPat p pat
-                                    return (m |+| (name, t), t)
-inferPat p (HsPWildCard) = do alpha <- createTv
-                              return $ justType alpha
-inferPat p (HsPParen pat) = inferPat p pat
-inferPat p (HsPInfixApp left conname right) = inferPat p (HsPApp conname [left, right])
+-- inferRhs p (HsUnGuardedRhs expr) = infer p expr
+-- inferRhs p (GRHS _ lexpr) = do (ms, ts) <- maptupM infer lexprs
+--                                unify ms ts
+--     where inferGuardedRhs (HsGuardedRhs srcloc expr guard) = withLoc srcloc $ do (m, t) <- infer p expr
+--                                                                                  (m', t') <- infer p guard
+--                                                                                  (m'', t'') <- unify [m'] [t', tyBool]
+--                                                                                  unify [m, m''] [t]
 
+inferGRhs p (GRHS _ lexpr) = infer p lexpr
+
+inferGRhss p (GRHSs lgrhss _) = do (ms, ts) <- maptupM (inferGRhs p . unLoc) lgrhss
+                                   unify ms ts
+                             
+inferLocalBinds :: PolyEnv -> HsLocalBinds Name -> Stateful PolyEnv
+inferLocalBinds p (HsValBinds vb)     = inferValBinds p vb
+inferLocalBinds p (HsIPBinds ipbinds) = error "inferLocalBinds: HsIPBnds"
+inferLocalBinds p EmptyLocalBinds     = return p                                                           
+
+inferValBinds :: PolyEnv -> HsValBinds Name -> Stateful PolyEnv
+inferValBinds p (ValBindsOut recbinds lsigs) = foldM (\ p' lbinds -> inferBinds p' lbinds) p (map snd recbinds)
+                                                            
+inferBinds :: PolyEnv -> LHsBinds Name -> Stateful PolyEnv
+inferBinds p lbinds = do (ms, ts) <- maptupM (inferBind p') binds
+                         let definePoly p (name, m, t) = addPolyVar p name (m, t)
+                             p'' = foldl definePoly p $ zip3 boundnames ms ts
+                         return p''
+                               
+    where binds = map unLoc $ bagToList lbinds
+          boundname FunBind{fun_id = (L _ name)} = name
+          boundname VarBind{var_id = name}       = name
+          boundnames = map boundname binds
+          p' = declareLocals p boundnames
+
+inferBind :: PolyEnv -> (HsBind Name) -> Stateful (MonoEnv, TanType)
+inferBind p bind@FunBind{fun_matches = MatchGroup lmatches _} = do (ms, ts) <- maptupM (inferMatch p) matches
+                                                                   unify ms ts
+    where matches = map unLoc lmatches
+               
+inferMatch :: PolyEnv -> (Match Name) -> Stateful (MonoEnv, TanType)
+inferMatch p (Match lpats _ grhss) = do (ms, ts) <- maptupM (inferPat p . unLoc) lpats
+                                        let patternvars = map fst $ concat $ map monoVars ms                                                          
+                                            p' = declareLocals (newScope p) $ patternvars
+                                        (m, t) <- inferGRhss p' grhss
+                                        (m', t') <- unify (m:ms) [tyCurryFun (ts ++ [t])]
+                                        return $ (restrictScope p m', t')
+          -- inferScope p f = do let p' = newScope p
+          --                     (m, t) <- f p
+          --                     return $ (restrictScope p m, t)
+
+inferPat :: PolyEnv -> TanPat -> Stateful (MonoEnv, TanType)
+inferPat p (AsPat (L _ name) (L _ pat))      = do (m, t) <- inferPat p pat
+                                                  return (m |+| (name, t), t)
+inferPat p (ParPat (L _ pat))                = inferPat p pat
+inferPat p (WildPat _)                       = do alpha <- mkTv
+                                                  return $ justType alpha
+inferPat p (VarPat name)                     = do alpha <- mkTv
+                                                  return $ name `typedAs` alpha
+inferPat p (LitPat lit)                      = return $ justType $ typeOfLit lit
+inferPat p (ConPatIn (L _ conname) details)  = do tycon <- tyCon p conname
+                                                  (ms, ts) <- maptupM (inferPat p) pats
+                                                  alpha <- mkTv
+                                                  (m, t) <- unify ms [tycon, tyCurryFun (ts ++ [alpha])]
+                                                  return (m, last (tyUncurryFun t))
+    where pats = case details of
+                   PrefixCon lps -> map unLoc lps
+                   InfixCon (L _ p) (L _ p') -> [p, p']
+inferPat p (TuplePat lpats _ _)              = do (ms, ts) <- maptupM (inferPat p . unLoc) lpats
+                                                  return (combineMonos ms, tyTuple ts)
+inferPat p (ListPat lpats _)                 = do (ms, ts) <- maptupM (inferPat p . unLoc) lpats
+                                                  (m', t') <- unify ms ts
+                                                  return (m', tyList t')
 
                           
-unify :: [MonoEnv] -> [HsType] -> Stateful (MonoEnv, HsType)
+unify :: [MonoEnv] -> [TanType] -> Stateful (MonoEnv, TanType)
 unify ms tys = do eqs <- monoeqs
-                  alpha <- createTv
+                  alpha <- mkTv
                   let eqs' = map (\ ty -> (alpha, ty)) tys
                   case mgu (eqs ++ eqs') of
                     Left errs -> do addError $ UnificationFailed ms errs
@@ -153,7 +176,7 @@ unify ms tys = do eqs <- monoeqs
                                   
     where monoeqs = do let vars = concat $ map monoVars ms
                            varnames = distinct $ map fst vars
-                       tyvarmap <- liftM Map.fromList $ mapM (\ var -> do tv <- createTv; return (var, tv)) varnames
+                       tyvarmap <- liftM Map.fromList $ mapM (\ var -> do tv <- mkTv; return (var, tv)) varnames
                        return $ map (\ (var, ty) -> (fromJust $ Map.lookup var tyvarmap, ty)) vars
           distinct = Set.toList . Set.fromList
           substMono subst m = mapMono (substTy subst) m

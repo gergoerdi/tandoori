@@ -1,10 +1,13 @@
-module Tandoori (VarName, ConName, TvName, infixToPrefix) where
+module Tandoori (TanType, TanExpr, TanPat, VarName, ConName, TvName) where
 
-import Language.Haskell.Syntax    
+import Name
+import HsTypes (HsType)
+import HsPat (Pat)
+import HsExpr (HsExpr)
     
-type VarName = HsName
-type ConName = HsName
-type TvName = HsName
-    
-infixToPrefix (HsInfixApp left (HsQVarOp opname) right) = HsApp (HsApp (HsVar opname) left) right
-infixToPrefix (HsInfixApp left (HsQConOp conname) right) = HsApp (HsApp (HsCon conname) left) right
+type TanType = HsType Name
+type TanExpr = HsExpr Name
+type TanPat = Pat Name
+type VarName = Name
+type ConName = Name
+type TvName = Name

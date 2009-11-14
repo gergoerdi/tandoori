@@ -1,36 +1,28 @@
-module Sandbox where
+import Tandoori.GHC    
+import Tandoori.GHC.Parse
+import Tandoori.GHC.Scope
+import Tandoori.Kludge.Show
 
-import Tandoori.State    
-import Tandoori.Ty.Printer
-import Control.Monad.State
-import Tandoori.Ty.PolyEnv
+import Tandoori.State
+import Control.Monad.State (evalState)
+    
+import GHC    
+import RdrHsSyn
+import Outputable
+import IOEnv
+
 import Tandoori.Ty.Infer
-import Tandoori.Test
-import Language.Haskell.Syntax
-import Language.Haskell.Pretty
-import Tandoori.Errors
+import Tandoori.Ty.PolyEnv
+import Tandoori.Ty
     
-test expr = do (_, ty) <- infer emptyPoly expr                     
-               errors <- getErrors
-               return (ty, errors)
-    
-main' = do expr <- getTestExpr
-           let (ty, errors) = evalState (niceM $ evalState (test expr) newState) newTyPrinter
-           mapM print errors
-           return $ ty
+src_filename = "input/list.hs"
+               
+typecheckMod mod = runDyn $ do
+                     env <- getSession
+                     (tydecls, group) <- liftIO $ runScope env mod
+                     return $ evalState (inferValBinds p $ hs_valds group) mkState
+    where p = emptyPoly
 
-    where niceM (ty, errors) = do errors' <- mapM niceErrorM errors
-                                  ty' <- niceTyM ty
-                                  return (ty', errors')
-                  
-niceErrorM (ErrorMessage loc expr content) = liftM (ErrorMessage loc expr) (niceContentM content)
-niceContentM (UnificationFailed ms typairs) = do let ms' = ms
-                                                 typairs' <- mapM niceTyPairM typairs
-                                                 return $ UnificationFailed ms' typairs'
-    where niceTyPairM (l, r) = do l' <- niceTyM l
-                                  r' <- niceTyM r
-                                  return (l', r')
-niceContentM content = return $ content
-                                              
-                                             
-main = liftM prettyPrint main'
+    
+main = do mod <- parseMod src_filename
+          typecheckMod mod
