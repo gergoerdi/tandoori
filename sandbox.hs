@@ -16,7 +16,7 @@ import Tandoori.Ty.PolyEnv
 import Tandoori.Ty
 import Tandoori.Ty.DataType
     
-src_filename = "input/datatype.hs"
+src_filename = "input/declare.hs"
                
 typecheckMod mod = runDyn $ do
                      env <- getSession

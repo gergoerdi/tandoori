@@ -74,16 +74,21 @@ infer' p (HsApp lfun lparam)               = do (m1, ty1) <- infer p lfun
 infer' p (HsLam (MatchGroup lmatches _))   = do (ms, ts) <- maptupM (inferMatch p) matches
                                                 unify ms ts
     where matches = map unLoc lmatches
-                
-infer' p (HsVar name) | isLocal p name     = newMonoVar
-                      | otherwise          = case getPolyVar p name of
-                                               Nothing     -> do addError (UndefinedVar name)
-                                                                 newMonoVar
-                                               Just (m, t) -> do t' <- instantiateTy isPoly t
-                                                                 return (m, t')
-                                                   where isPoly t = not (Set.member t monotyvars)
-                                                         monotyvars = Set.unions $ map (tyVarsOf . snd) $ monoVars m
-    where newMonoVar = do alpha <- mkTv; return $ name `typedAs` alpha
+
+infer' p (HsVar name) = case getUserDecl p name of
+                          Just t -> do t' <- instantiateTy (const True) t
+                                       return $ justType t'
+                          Nothing -> inferVar
+                                     
+    where inferVar | isLocal p name = newMonoVar
+                   | otherwise      = case getPolyVar p name of
+                                        Nothing     -> do addError (UndefinedVar name)
+                                                          newMonoVar
+                                        Just (m, t) -> do t' <- instantiateTy isPoly t
+                                                          return (m, t')
+                                            where isPoly t = not (Set.member t monotyvars)
+                                                  monotyvars = Set.unions $ map (tyVarsOf . snd) $ monoVars m
+              where newMonoVar = do alpha <- mkTv; return $ name `typedAs` alpha
                               
 infer' p (HsLet binds lexpr)               = do p' <- inferLocalBinds p binds
                                                 infer p' lexpr
@@ -112,20 +117,25 @@ inferLocalBinds p (HsIPBinds ipbinds) = error "inferLocalBinds: HsIPBnds"
 inferLocalBinds p EmptyLocalBinds     = return p                                                           
 
 inferValBinds :: PolyEnv -> HsValBinds Name -> Stateful PolyEnv
-inferValBinds p (ValBindsOut recbinds lsigs) = foldM (\ p' lbinds -> inferBinds p' lbinds) p (map snd recbinds)
-                                                            
+inferValBinds p (ValBindsOut recbinds lsigs) = foldM inferBinds p' (map snd recbinds)
+    where p' = addUserDecls p $ map unLoc lsigs
+                                               
 inferBinds :: PolyEnv -> LHsBinds Name -> Stateful PolyEnv
 inferBinds p lbinds = do (ms, ts) <- maptupM (inferBind p') binds
-                         let definePoly p (name, m, t) = addPolyVar p name (m, t)
-                             p'' = foldl definePoly p $ zip3 boundnames ms ts
-                         return p''
+                         foldM definePoly p $ zip3 boundnames ms ts
                                
     where binds = map unLoc $ bagToList lbinds
-          boundname FunBind{fun_id = (L _ name)} = name
-          boundname VarBind{var_id = name}       = name
-          boundnames = map boundname binds
           p' = declareLocals p boundnames
-
+          boundnames = map boundname binds
+              where boundname FunBind{fun_id = (L _ name)} = name
+                    boundname VarBind{var_id = name}       = name
+          definePoly p (name, m, t) = case (getUserDecl p name) of
+                                        Nothing     -> return $ addPolyVar p name (m, t)
+                                        Just tDecl  -> case fitDecl tDecl t of
+                                                         Left errs -> do addError $ CantFitDecl tDecl t errs
+                                                                         return $ p
+                                                         Right _ -> return $ p
+                                                   
 inferBind :: PolyEnv -> (HsBind Name) -> Stateful (MonoEnv, TanType)
 inferBind p bind@FunBind{fun_matches = MatchGroup lmatches _} = do (ms, ts) <- maptupM (inferMatch p) matches
                                                                    unify ms ts
@@ -144,7 +154,7 @@ inferMatch p (Match lpats _ grhss) = do (ms, ts) <- maptupM (inferPat p . unLoc)
 
 inferPat :: PolyEnv -> TanPat -> Stateful (MonoEnv, TanType)
 inferPat p (AsPat (L _ name) (L _ pat))      = do (m, t) <- inferPat p pat
-                                                  return (m |+| (name, t), t)
+                                                  return (addMonoVar m (name, t), t)
 inferPat p (ParPat (L _ pat))                = inferPat p pat
 inferPat p (WildPat _)                       = do alpha <- mkTv
                                                   return $ justType alpha
@@ -164,6 +174,7 @@ inferPat p (TuplePat lpats _ _)              = do (ms, ts) <- maptupM (inferPat 
 inferPat p (ListPat lpats _)                 = do (ms, ts) <- maptupM (inferPat p . unLoc) lpats
                                                   (m', t') <- unify ms ts
                                                   return (m', tyList t')
+inferPat p (NPat overlit _ _)                = return $ justType $ typeOfOverLit overlit
 
                           
 unify :: [MonoEnv] -> [TanType] -> Stateful (MonoEnv, TanType)

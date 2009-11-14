@@ -21,13 +21,9 @@ name `typedAs` t = (addMonoVar emptyMono (name, t), t)
 addMonoVar :: MonoEnv -> (VarName, TanType) -> MonoEnv
 addMonoVar (MonoEnv m) (name, ty) = MonoEnv (Map.insert name ty m)
 
-(|+|) = addMonoVar                                    
-                                    
 getMonoVar :: MonoEnv -> VarName -> Maybe TanType
 getMonoVar (MonoEnv m) name = Map.lookup name m
 
-(|->|) = getMonoVar                              
-                              
 monoVars :: MonoEnv -> [(VarName, TanType)]
 monoVars (MonoEnv m) = Map.toList m
 

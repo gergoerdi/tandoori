@@ -1,10 +1,11 @@
-module Tandoori.Ty.Unify (Substitution, substTy, mgu) where
+module Tandoori.Ty.Unify (Substitution, substTy, mgu, fitDecl) where
 
 import Tandoori
 import Tandoori.State    
 import Tandoori.Ty
 import Control.Monad.State
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import Data.Maybe
 
 import Tandoori.Kludge.Show
@@ -46,31 +47,40 @@ substTy s (HsOpTy _ _ _)        = error "substTy: TODO: OpTy"
 substTy s (HsSpliceTy _)        = error "substTy: TODO: Splice"
 substTy s (HsPredTy _ )         = error "substTy: TODO: Pred"
 substTy s ty                    = error $ show ty
-                              
-                              
+
+fitDecl :: TanType -> TanType -> Either [(TanType, TanType)] Substitution
+fitDecl tDecl t = mgu' True [(t, tDecl)]
+                                                  
 mgu :: [(TanType, TanType)] -> Either [(TanType, TanType)] Substitution
-mgu []                                                                            = Right $ emptySubst
-mgu ((HsTyVar x,                HsTyVar y)                 :eqs) | x == y         = mgu eqs
-mgu ((ty,                       ty')                       :eqs) | isTyCon ty && isTyCon ty' = combineErrors (ty, ty') (mgu eqs)
-mgu ((ty@(HsTyVar x),           ty')                       :eqs) | not(isTyCon ty) = if occurs x ty'
-                                                                                   then combineErrors (ty, ty') (mgu eqs)
-                                                                                   else case mgu eqs' of
-                                                                                          Left errs -> Left errs
-                                                                                          Right s   -> Right $ addSubst s x ty'
+mgu = mgu' False
+
+mgu' :: Bool -> [(TanType, TanType)] -> Either [(TanType, TanType)] Substitution
+mgu' leftOnly []                                                                            = Right $ emptySubst
+mgu' leftOnly ((HsParTy (L _ ty),         ty')                       :eqs)                  = mgu' leftOnly $ (ty, ty'):eqs
+mgu' leftOnly ((ty,                       HsParTy (L _ ty'))         :eqs)                  = mgu' leftOnly $ (ty, ty'):eqs
+                                                                                    
+mgu' leftOnly ((HsTyVar x,                HsTyVar y)                 :eqs) | x == y         = mgu' leftOnly eqs
+mgu' leftOnly ((ty,                       ty')                       :eqs) | isTyCon ty &&
+                                                                             isTyCon ty'    = combineErrors (ty, ty') (mgu' leftOnly eqs)
+mgu' leftOnly ((ty@(HsTyVar x),           ty')                       :eqs) | not(isTyCon ty)  = if occurs x ty'
+                                                                                              then combineErrors (ty, ty') (mgu' leftOnly eqs)
+                                                                                              else case mgu' leftOnly eqs' of
+                                                                                                     Left errs -> Left errs
+                                                                                                     Right s   -> Right $ addSubst s x ty'
     where eqs' = map (\ (t, t') -> (subst t, subst t')) eqs
           subst = substTy (addSubst emptySubst x ty')
-mgu ((ty,                       tv@(HsTyVar _))            :eqs)                  = mgu $ (tv, ty):eqs
-mgu ((HsFunTy (L _ t) (L _ u),  HsFunTy (L _ t') (L _ u')) :eqs)                  = mgu $ (t, t'):(u, u'):eqs
-mgu ((HsAppTy (L _ t) (L _ u),  HsAppTy (L _ t') (L _ u')) :eqs)                  = mgu $ (t, t'):(u, u'):eqs
-mgu ((HsTupleTy _ lts,          HsTupleTy _ lts')          :eqs)                  = mgu $ (zip (map unLoc lts) (map unLoc lts')) ++ eqs
-mgu ((HsListTy (L _ t),         HsListTy (L _ t'))         :eqs)                  = mgu $ (t, t'):eqs
+mgu' leftOnly ((ty,                       tv@(HsTyVar _))            :eqs) | not leftOnly     = mgu' leftOnly $ (tv, ty):eqs
+mgu' leftOnly ((HsFunTy (L _ t) (L _ u),  HsFunTy (L _ t') (L _ u')) :eqs)                  = mgu' leftOnly $ (t, t'):(u, u'):eqs
+mgu' leftOnly ((HsAppTy (L _ t) (L _ u),  HsAppTy (L _ t') (L _ u')) :eqs)                  = mgu' leftOnly $ (t, t'):(u, u'):eqs
+mgu' leftOnly ((HsTupleTy _ lts,          HsTupleTy _ lts')          :eqs)                  = mgu' leftOnly $ (zip (map unLoc lts) (map unLoc lts')) ++ eqs
+mgu' leftOnly ((HsListTy (L _ t),         HsListTy (L _ t'))         :eqs)                  = mgu' leftOnly $ (t, t'):eqs
 
-mgu ((HsForAllTy _ _ _ (L _ t), t')                        :eqs)                  = mgu $ (t, t'):eqs
-mgu ((t,                        t'@(HsForAllTy _ _ _ _))   :eqs)                  = mgu $ (t', t):eqs
-mgu ((HsBangTy _ (L _ t),       t')                        :eqs)                  = mgu $ (t, t'):eqs
-mgu ((t,                        t'@(HsBangTy _ _))         :eqs)                  = mgu $ (t', t):eqs
+mgu' leftOnly ((HsForAllTy _ _ _ (L _ t), t')                        :eqs)                  = mgu' leftOnly $ (t, t'):eqs
+mgu' leftOnly ((t,                        HsForAllTy _ _ _ (L _ t')) :eqs)                  = mgu' leftOnly $ (t, t'):eqs
+mgu' leftOnly ((HsBangTy _ (L _ t),       t')                        :eqs)                  = mgu' leftOnly $ (t, t'):eqs
+mgu' leftOnly ((t,                        HsBangTy _ (L _ t'))       :eqs)                  = mgu' leftOnly $ (t, t'):eqs
                                                                                     
-mgu ((t,                        t')                        :eqs)                  = combineErrors (t, t') $ mgu eqs
+mgu' leftOnly ((t,                        t')                        :eqs)                  = combineErrors (t, t') $ mgu' leftOnly eqs
                                                        
 combineErrors :: (TanType, TanType) -> Either [(TanType, TanType)] Substitution -> Either [(TanType, TanType)] Substitution
 combineErrors typair (Left errs) = Left $ typair:errs

@@ -24,9 +24,13 @@ data ErrorContent = OtherMessage String
                   | UndefinedCon ConName
                   | UndefinedVar VarName
                   | UnificationFailed [MonoEnv] [(TanType, TanType)]
+                  | CantFitDecl TanType TanType [(TanType, TanType)]
 
+showFailedEqs sep typairs = unwords $ map (\ (t1, t2) -> unwords [pshow t1, sep, pshow t2]) typairs
+                    
 instance Show ErrorContent where
     show (UndefinedCon name)            = unwords ["Reference to undefined constructor", showSDoc $ ppr name]
     show (UndefinedVar name)            = unwords ["Reference to undefined variable", showSDoc $ ppr name]
-    show (UnificationFailed ms typairs) = (unwords ("Cannot unify" : map (\ (t1, t2) -> unwords [pshow t1, "with", pshow t2]) typairs)) -- ++  "\n" ++ (unwords $ map show ms)
+    show (UnificationFailed ms typairs) = unwords ["Cannot unify", showFailedEqs "with" typairs] -- ++  "\n" ++ (unwords $ map show ms)
+    show (CantFitDecl tDecl t typairs)  = unwords ["Declared type", pshow tDecl, "is not a special case of inferred type", pshow t]
     show (OtherMessage message)         = message

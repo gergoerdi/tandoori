@@ -67,6 +67,7 @@ tyVarsOf (HsTupleTy _ ltys)                            = Set.unions $ map (tyVar
 tyVarsOf (HsListTy (L _ tyElem))                       = tyVarsOf tyElem
 tyVarsOf (HsForAllTy _ _ _ (L _ ty))                   = tyVarsOf ty
 tyVarsOf (HsBangTy _ (L _ ty))                         = tyVarsOf ty
+tyVarsOf (HsParTy (L _ ty))                            = tyVarsOf ty
                                                
 occurs :: TvName -> TanType -> Bool
 occurs x (HsTyVar y)                      = x == y

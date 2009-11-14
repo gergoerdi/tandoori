@@ -1,5 +1,5 @@
 module Tandoori.Ty.PolyEnv where
---module Tandoori.Ty.PolyEnv (PolyEnv, emptyPoly, getCon, getPolyVar, addPolyVar, removePolyVars, isLocal, declareLocals) where
+--module Tandoori.Ty.PolyEnv (PolyEnv, emptyPoly, getCon, getPolyVar, addPolyVar, addUserDecls, getUserDecl, removePolyVars, isLocal, declareLocals) where
 
 import Tandoori
 import Tandoori.Ty
@@ -7,30 +7,43 @@ import Tandoori.Ty.MonoEnv
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
+import SrcLoc
+import HsBinds
+import Name
+    
 data PolyEnv = PolyEnv { polyvarmap :: Map.Map VarName (MonoEnv, TanType),
                          conmap :: Map.Map ConName TanType,
                          locals :: Set.Set VarName,
-                         scopelocals :: Set.Set VarName
+                         scopelocals :: Set.Set VarName,
+                         userdecls :: Map.Map VarName TanType
                        }
 
 mkPoly :: [(ConName, TanType)] -> PolyEnv
-mkPoly cons = PolyEnv{polyvarmap = Map.empty, conmap = conmap, locals = Set.empty, scopelocals = Set.empty}
+mkPoly cons = PolyEnv{polyvarmap = Map.empty, conmap = conmap, locals = Set.empty, scopelocals = Set.empty, userdecls = Map.empty}
     where conmap = Map.fromList cons
 
 isCon :: PolyEnv -> ConName -> Bool
-isCon PolyEnv{conmap = conmap} name = Map.member name conmap
+isCon p = flip Map.member (conmap p)
 
 getCon :: PolyEnv -> ConName -> Maybe TanType
-getCon PolyEnv{conmap = conmap} name = Map.lookup name conmap
+getCon p = flip Map.lookup (conmap p)
 
 getPolyVar :: PolyEnv -> VarName -> Maybe (MonoEnv, TanType)
-getPolyVar PolyEnv{polyvarmap = polyvarmap} name = Map.lookup name polyvarmap
+getPolyVar p = flip Map.lookup (polyvarmap p)
 
 addPolyVar :: PolyEnv -> VarName -> (MonoEnv, TanType) -> PolyEnv
-addPolyVar p@PolyEnv{polyvarmap = polyvarmap} name typing = p{polyvarmap = Map.insert name typing polyvarmap}
-                                                   
+addPolyVar p name typing = p{polyvarmap = Map.insert name typing (polyvarmap p)}
+
+addUserDecls :: PolyEnv -> [Sig Name] -> PolyEnv
+addUserDecls p sigs = foldl addDecl p sigs
+    where addDecl p (TypeSig (L _ name) (L _ ty)) = p{userdecls = Map.insert name ty (userdecls p)}
+          addDecl p _                             = p
+
+getUserDecl :: PolyEnv -> VarName -> Maybe TanType
+getUserDecl p = flip Map.lookup (userdecls p)                                                    
+                                                            
 removePolyVars :: PolyEnv -> [VarName] -> PolyEnv
-removePolyVars p@PolyEnv{polyvarmap = polyvarmap} names = p{polyvarmap = foldl removePolyVar polyvarmap names}
+removePolyVars p names = p{polyvarmap = foldl removePolyVar (polyvarmap p) names}
     where removePolyVar = flip Map.delete
                                                    
 isLocal :: PolyEnv -> VarName -> Bool
@@ -38,13 +51,12 @@ isLocal p@PolyEnv{locals = locals} name = (Set.member name locals) || (isScopelo
 
 isScopelocal :: PolyEnv -> VarName -> Bool                                                                   
 isScopelocal PolyEnv{scopelocals = scopelocals} name = Set.member name scopelocals
-
                 
 newScope :: PolyEnv -> PolyEnv
-newScope p@PolyEnv{locals = locals, scopelocals = scopelocals} = p {locals = locals `Set.union` scopelocals, scopelocals = Set.empty }
+newScope p = p {locals = (locals p) `Set.union` (scopelocals p), scopelocals = Set.empty }
                                         
 declareLocals :: PolyEnv -> [VarName] -> PolyEnv
-declareLocals p@PolyEnv{locals = locals} names = p{locals = locals `Set.union` (Set.fromList names)}
+declareLocals p names = p{locals = (locals p) `Set.union` (Set.fromList names)}
                                                  
 restrictScope :: PolyEnv -> MonoEnv -> MonoEnv
 restrictScope p = filterMonoVars (\ name ty -> isScopelocal p name)
