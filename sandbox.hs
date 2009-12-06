@@ -44,12 +44,12 @@ main' [src_filename] = do mod <- parseMod src_filename
                           printPolyEnv p
                           return p
 
-main' _ = error "whatever"                                 
+main' _ = error "Usage: tandoori filename.hs" 
 
 main = do args <- getArgs
           main' args
 
-test = do p <- main' ["input/declare.hs"]
+test = do p <- main' ["input/cikk.hs"]
           let tyFoo = snd $ snd $ (Map.toList $ polyvarmap p)!!0
               ltyId = snd $ (Map.toList $ userdecls p)!!1
               tyId = unLoc ltyId

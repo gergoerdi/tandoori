@@ -1,4 +1,4 @@
-module Tandoori.State (Stateful, StatefulT, mkState, mkTv, addError, getErrors, withLoc) where
+module Tandoori.State (Stateful, StatefulT, mkState, mkTv, addError, getErrors, withLoc, withSrc) where
 
 import Tandoori
 import Tandoori.Errors
@@ -60,7 +60,20 @@ setSrc Nothing = do state <- get
                     put state{src = Nothing}
 setSrc (Just src') = do state <- get
                         put state{src = Just $ ErrorSource src'}
-          
+
+restoreSrc :: Maybe ErrorSource -> Stateful ()
+restoreSrc Nothing = do state <- get
+                        put state{src = Nothing}
+restoreSrc (Just src) = do state <- get
+                           put state{src = Just src}
+                            
+withSrc :: Outputable e => e -> Stateful a -> Stateful a
+withSrc src m = do src' <- getSrc
+                   setSrc (Just src)
+                   result <- m
+                   restoreSrc src'
+                   return result
+                            
 -- setExpr :: Maybe (HsExpr Name) -> Stateful ()
 -- setExpr expr = do state <- get
 --                   put state{expr = expr}

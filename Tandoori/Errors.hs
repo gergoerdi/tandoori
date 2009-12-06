@@ -11,22 +11,21 @@ import Data.Maybe
 
 pshow x = showSDoc $ ppr x
 
-data ErrorSource = forall src. Outputable src => ErrorSource src          
+data ErrorSource = forall src. Outputable src => ErrorSource src                                  
 data ErrorLocation = ErrorLocation SrcSpan (Maybe ErrorSource)
 data ErrorMessage = ErrorMessage ErrorLocation ErrorContent
 
+instance Outputable ErrorSource where
+    ppr (ErrorSource src) = ppr src
+                  
 instance Show ErrorMessage where
     show (ErrorMessage loc content) = unwords [showLoc loc, show content]
         where showLoc (ErrorLocation srcloc src) = showSrcLoc srcloc ++ ":"
-
-              showSrc Nothing = ""
-              showSrc (Just (ErrorSource src)) = showSDoc $ ppr src
-
               showSrcLoc srcloc = showSDoc $ ppr srcloc
 
 instance Outputable ErrorMessage where
-    ppr (ErrorMessage loc content) = pprLoc loc <+> text (show content)
-        where pprLoc (ErrorLocation srcloc src) = ppr srcloc <> colon
+    ppr (ErrorMessage (ErrorLocation srcloc Nothing) content)     = ppr srcloc <> colon <+> ppr content
+    ppr (ErrorMessage (ErrorLocation srcloc (Just src)) content)  = ppr srcloc <> colon $$ ppr src $$ ppr content
                                   
 data ErrorContent = OtherMessage String
                   | UndefinedCon ConName
@@ -35,7 +34,21 @@ data ErrorContent = OtherMessage String
                   | CantFitDecl TanType TanType [(TanType, TanType)]
 
 showFailedEqs sep typairs = unwords $ map (\ (t1, t2) -> unwords [pshow t1, sep, pshow t2]) typairs
-                    
+
+instance Outputable ErrorContent where
+    ppr (UndefinedCon name)              = text "Reference to undefined constructor" <+> ppr name
+    ppr (UndefinedVar name)              = text "Reference to undefined variable" <+> ppr name
+    ppr (UnificationFailed ms typairs)   = text "Cannot unify" <+> text (showFailedEqs "with" typairs')
+        where typairs' = runPretty $ mapM prettyTyPairM typairs
+              prettyTyPairM (t, u) = do t' <- prettyTyM t
+                                        u' <- prettyTyM u
+                                        return (t', u')
+    ppr (CantFitDecl tyDecl ty typairs)  = text "Declared type" <+> ppr tyDecl' <+> text "is not a special case of inferred type" <+> ppr ty'
+        where (tyDecl', ty') = runPretty $ do tyDecl' <- prettyTyM tyDecl
+                                              ty' <- prettyTyM ty
+                                              return (tyDecl', ty')
+    ppr (OtherMessage message)           = text message
+
 instance Show ErrorContent where
     show (UndefinedCon name)             = unwords ["Reference to undefined constructor", showSDoc $ ppr name]
     show (UndefinedVar name)             = unwords ["Reference to undefined variable", showSDoc $ ppr name]
@@ -43,7 +56,7 @@ instance Show ErrorContent where
         where typairs' = runPretty $ mapM prettyTyPairM typairs
               prettyTyPairM (t, u) = do t' <- prettyTyM t
                                         u' <- prettyTyM u
-                                        return (t', u')                                             
+                                        return (t', u')
     show (CantFitDecl tyDecl ty typairs) = unwords ["Declared type", pshow tyDecl', "is not a special case of inferred type", pshow ty']
         where (tyDecl', ty') = runPretty $ do tyDecl' <- prettyTyM tyDecl
                                               ty' <- prettyTyM ty

@@ -41,8 +41,8 @@ genLoc x = mkGeneralLocated "(internal)" x
                                  
 infer :: PolyEnv -> (Located TanExpr) -> Stateful (MonoEnv, TanType)
 -- infer p expr = withExpr expr (infer' p expr)
-infer p (L srcloc expr) | isGoodSrcSpan srcloc = withLoc srcloc $ infer' p expr
-                        | otherwise            = infer' p expr
+infer p (L srcloc expr) | isGoodSrcSpan srcloc = withSrc expr $ withLoc srcloc $ infer' p expr
+                        | otherwise            = withSrc expr $ infer' p expr
 
 infer' :: PolyEnv -> TanExpr -> Stateful (MonoEnv, TanType)
 infer' p (HsLit lit)                       = return $ justType $ typeOfLit lit
