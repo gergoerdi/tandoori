@@ -8,6 +8,8 @@ import Tandoori.Ty.Pretty
 import Tandoori.GHC.Internals
     
 import Text.PrettyPrint.Tabulator    
+
+import Tandoori.Ty.ShowTy
     
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -56,7 +58,8 @@ addPolyVar c name typing = c{polyvars = Map.insert name typing (polyvars c)}
 
 addUserDecls :: Ctxt -> [LSig Name] -> Ctxt
 addUserDecls c sigs = foldl addDecl c sigs
-    where addDecl c (L srcloc (TypeSig (L _ name) (L _ ty))) = c{userdecls = Map.insert name (L srcloc ty) (userdecls c)}
+    where --addDecl c (L srcloc (TypeSig (L _ name) (L _ ty))) = error $ show ty
+          addDecl c (L srcloc (TypeSig (L _ name) (L _ ty))) = c {userdecls = Map.insert name (L srcloc ty) (userdecls c)}         
           addDecl c _                                        = c
 
 getUserDecl :: Ctxt -> VarName -> Maybe (Located TanType)

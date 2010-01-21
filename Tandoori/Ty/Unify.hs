@@ -46,15 +46,16 @@ substTy s (HsOpTy _ _ _)         = error "substTy: TODO: OpTy"
 substTy s (HsSpliceTy _)         = error "substTy: TODO: Splice"
 substTy s (HsPredTy _ )          = error "substTy: TODO: Pred"
 
-                                   
-fitDecl :: TanType -> TanType -> Either [(TanType, TanType)] Substitution
+type UnsolvableEqs = [(TanType, TanType)]
+    
+fitDecl :: TanType -> TanType -> Either UnsolvableEqs Substitution
 fitDecl tDecl t = mgu' True [(t, tDecl)]
                                                   
-mgu :: [(TanType, TanType)] -> Either [(TanType, TanType)] Substitution
+mgu :: [(TanType, TanType)] -> Either UnsolvableEqs Substitution
 mgu = mgu' False
 
       
-mgu' :: Bool -> [(TanType, TanType)] -> Either [(TanType, TanType)] Substitution
+mgu' :: Bool -> [(TanType, TanType)] -> Either UnsolvableEqs Substitution
 mgu' leftOnly []                                                                            = Right $ emptySubst
 mgu' leftOnly ((HsParTy (L _ ty),         ty')                       :eqs)                  = mgu' leftOnly $ (ty, ty'):eqs
 mgu' leftOnly ((ty,                       HsParTy (L _ ty'))         :eqs)                  = mgu' leftOnly $ (ty, ty'):eqs
@@ -75,15 +76,16 @@ mgu' leftOnly ((HsAppTy (L _ t) (L _ u),  HsAppTy (L _ t') (L _ u')) :eqs)      
 mgu' leftOnly ((HsTupleTy _ lts,          HsTupleTy _ lts')          :eqs)                  = mgu' leftOnly $ (zip (map unLoc lts) (map unLoc lts')) ++ eqs
 mgu' leftOnly ((HsListTy (L _ t),         HsListTy (L _ t'))         :eqs)                  = mgu' leftOnly $ (t, t'):eqs
 
-mgu' leftOnly ((HsForAllTy _ _ _ (L _ t), t')                        :eqs)                  = mgu' leftOnly $ (t, t'):eqs
-mgu' leftOnly ((t,                        HsForAllTy _ _ _ (L _ t')) :eqs)                  = mgu' leftOnly $ (t, t'):eqs
 mgu' leftOnly ((HsBangTy _ (L _ t),       t')                        :eqs)                  = mgu' leftOnly $ (t, t'):eqs
 mgu' leftOnly ((t,                        HsBangTy _ (L _ t'))       :eqs)                  = mgu' leftOnly $ (t, t'):eqs
+                                                                                              
+mgu' leftOnly ((HsForAllTy _ _ _ (L _ t), t')                        :eqs)                  = mgu' leftOnly $ (t, t'):eqs
+mgu' leftOnly ((t,                        HsForAllTy _ _ _ (L _ t')) :eqs)                  = mgu' leftOnly $ (t, t'):eqs
                                                                                     
 mgu' leftOnly ((t,                        t')                        :eqs)                  = combineErrors (t, t') (mgu' leftOnly eqs)
 
                                                                                               
-combineErrors :: (TanType, TanType) -> Either [(TanType, TanType)] Substitution -> Either [(TanType, TanType)] Substitution
+combineErrors :: (TanType, TanType) -> Either UnsolvableEqs Substitution -> Either UnsolvableEqs Substitution
 combineErrors typair (Left errs) = Left $ typair:errs
 combineErrors typair (Right s)   = Left $ [typair]
 

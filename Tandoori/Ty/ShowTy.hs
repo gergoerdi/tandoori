@@ -3,14 +3,14 @@
 module Tandoori.Ty.ShowTy(showTy) where
 
 import Tandoori.GHC.Internals
-
-data Context = C { isLeftOfFun :: Bool }                 
+    
+data ShowTyCtxt = C { isLeftOfFun :: Bool }                 
              
 joinWith sep []     = []
 joinWith sep [x]    = x
 joinWith sep (x:xs) = (x ++ sep) ++ (joinWith sep xs)
              
-showFunLeft :: Context -> HsType Name -> String
+showFunLeft :: ShowTyCtxt -> HsType Name -> String
 showFunLeft c ty = showTy' c{isLeftOfFun = True} ty
 showFunRight c ty = showTy' c{isLeftOfFun = False} ty
 
@@ -23,9 +23,9 @@ showTy :: HsType Name -> String
 showTy ty = showTy' C{isLeftOfFun = False} ty
 
 unsupported xs = error $ unwords ("showTy: TODO:":xs)                 
-                 
-showTy' :: Context -> HsType Name -> String
-showTy' c (HsForAllTy _ bndrs lctxt lty) = showTy $ unLoc lty
+
+showTy' :: ShowTyCtxt -> HsType Name -> String
+showTy' c (HsForAllTy e bndrs lctxt lty) = (showPreds $ map unLoc $ unLoc lctxt) ++  (showTy $ unLoc lty)
 showTy' c (HsTyVar name)                 = showName name
 showTy' c (HsBangTy HsNoBang lty)        = showTy' c $ unLoc lty
 showTy' c (HsBangTy _ lty)               = '!':(showTy' c $ unLoc lty)
@@ -45,8 +45,13 @@ showTy' c (HsDocTy lty ldoc)             = unsupported ["HsDocTy"]
 showName :: Name -> String
 showName name = occNameString $ nameOccName name
 
+showPreds :: [HsPred Name] -> String
+showPreds [] = ""
+showPreds [pred] = unwords [showPred pred, "=> "]
+showPreds preds = unwords ["(" ++ (joinWith ", " $ map showPred preds) ++ ")", "=> "]
+             
 showPred :: HsPred Name -> String
-showPred (HsClassP name ltys) = unwords ["HsClassP", showName name, "[" ++ joinWith ", " (map (showTy . unLoc) ltys) ++ "]"]
+showPred (HsClassP name [lty]) = unwords [showName name, showTy $ unLoc lty]
                 
 instance Show (HsType Name) where
     show = showTy 
