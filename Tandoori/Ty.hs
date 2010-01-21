@@ -36,17 +36,15 @@ tyTuple tys = HsTupleTy Boxed $ map noLoc tys
 builtinDataCons = [nilDataCon, consDataCon]
 builtinDataConNames = map dataConName builtinDataCons
 
+--- Builtin typeclasses
+builtinClassNames = [eqClassName, ordClassName, numClassName, fractionalClassName]
+                      
 --- Types of literals              
 typeOfLit :: HsLit -> TanType
 typeOfLit (HsInt _)    = tyInt
 typeOfLit (HsChar _)   = tyChar
 typeOfLit (HsString _) = tyString
 
-typeOfOverLit :: HsOverLit Name -> TanType
-typeOfOverLit (OverLit { ol_val = val }) = case val of
-                                             HsIntegral _ -> tyInt
-                                             HsIsString _ -> tyString
-                         
 ltyVarsOf :: Located TanType -> Set.Set TvName
 ltyVarsOf = tyVarsOf . unLoc
                          

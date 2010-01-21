@@ -33,8 +33,6 @@ maptupM :: (Monad m) => (a -> m (b, c)) -> [a] -> m ([b], [c])
 maptupM action items = do results <- mapM action items
                           return (map fst results, map snd results)
 
-genLoc x = mkGeneralLocated "(internal)" x
-
 doLoc :: SrcSpan -> Stateful a -> Stateful a
 doLoc srcloc m | isGoodSrcSpan srcloc  = withLoc srcloc $ m
                | otherwise             = m
@@ -42,9 +40,19 @@ doLoc srcloc m | isGoodSrcSpan srcloc  = withLoc srcloc $ m
 infer :: Ctxt -> (Located TanExpr) -> Stateful (MonoEnv, TanType)
 infer c (L srcloc expr) = doLoc srcloc $ withSrc expr $ infer' c expr
 
+typeOfOverLit :: HsOverLit Name -> Stateful TanType
+typeOfOverLit (OverLit { ol_val = HsIsString _ }) = return tyString
+typeOfOverLit (OverLit { ol_val = val }) = do alpha@(HsTyVar alpha_name) <- mkTv
+                                              let bndrs = [genLoc $ UserTyVar alpha_name]
+                                                  tc = case val of
+                                                         HsIntegral _ -> numClassName
+                                                  preds = [genLoc $ HsClassP tc [genLoc alpha]]
+                                                  lpreds = genLoc preds
+                                              return $ HsForAllTy Implicit bndrs lpreds (genLoc alpha)
+                                                             
 infer' :: Ctxt -> TanExpr -> Stateful (MonoEnv, TanType)
 infer' c (HsLit lit)                       = return $ justType $ typeOfLit lit
-infer' c (HsOverLit overlit)               = return $ justType $ typeOfOverLit overlit
+infer' c (HsOverLit overlit)               = liftM justType $ typeOfOverLit overlit
 infer' c (HsVar name) | isDataConName name = liftM justType (tyCon c name)
                                              
 infer' c (ExplicitList _ lexprs)           = do (ms, ts) <- maptupM (infer c) lexprs
@@ -167,7 +175,7 @@ inferPat c (TuplePat lpats _ _)              = do (ms, ts) <- maptupM (inferPat 
 inferPat c (ListPat lpats _)                 = do (ms, ts) <- maptupM (inferPat c . unLoc) lpats
                                                   (m', t') <- unify ms ts
                                                   return (m', tyList t')
-inferPat c (NPat overlit _ _)                = return $ justType $ typeOfOverLit overlit
+inferPat c (NPat overlit _ _)                = liftM justType $ typeOfOverLit overlit
 
                           
 unify :: [MonoEnv] -> [TanType] -> Stateful (MonoEnv, TanType)

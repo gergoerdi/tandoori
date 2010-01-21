@@ -1,0 +1,1 @@
+numeric x = 1

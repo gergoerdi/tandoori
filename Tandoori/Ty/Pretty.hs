@@ -1,7 +1,8 @@
 module Tandoori.Ty.Pretty(prettyTy, prettyTyM, runPretty) where
 
 import Tandoori.GHC.Internals
-
+import Tandoori
+    
 import Data.Char
 import Control.Monad.State    
 import qualified Data.Map as Map
@@ -35,7 +36,23 @@ prettyLTyM (L srcloc ty) = do ty' <- prettyTyM ty
                               return $ L srcloc ty'
 
 prettyTyM :: HsType Name -> State PrettyS (HsType Name)
-prettyTyM (HsForAllTy e bndrs lctxt lty) = liftM unLoc $ prettyLTyM lty -- TODO
+prettyTyM (HsForAllTy e lbndrs lctxt lty) = do let bndrs = map unLoc lbndrs
+                                                   lpreds = unLoc lctxt
+                                               bndrs' <- mapM prettyTyVarBndrM bndrs
+                                               lpreds' <- mapM prettyLPredM lpreds
+                                               lty' <- prettyLTyM lty
+                                               let lbndrs' = map genLoc bndrs'
+                                                   lctxt' = genLoc lpreds'
+                                               return $ HsForAllTy e lbndrs' lctxt' lty'
+    where prettyTyVarBndrM (UserTyVar name) = do name' <- prettyNameM name
+                                                 return $ UserTyVar name'                                                 
+                                                        
+          prettyPredM (HsClassP name ltys) = do name' <- prettyNameM name
+                                                tys' <- mapM prettyTyM $ map unLoc ltys
+                                                return $ HsClassP name' (map genLoc tys')
+
+          prettyLPredM lpred = liftM genLoc $ prettyPredM $ unLoc lpred
+                                                              
 prettyTyM (HsTyVar name)                 = do name' <- prettyNameM name
                                               return $ HsTyVar name'                                                       
 prettyTyM (HsBangTy bang lty)            = liftM (HsBangTy bang) $ prettyLTyM lty

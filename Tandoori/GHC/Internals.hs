@@ -28,6 +28,6 @@ import HsLit
 import HsBinds
 import DataCon (dataConName)
 import TysWiredIn (intTyConName, charTyConName, boolTyConName, listTyConName, nilDataCon, consDataCon)
-import PrelNames (stringTyConName)
+import PrelNames (stringTyConName, eqClassName, ordClassName, numClassName, fractionalClassName)
 import HsTypes
 import HsDecls

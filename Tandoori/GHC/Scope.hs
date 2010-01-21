@@ -23,7 +23,7 @@ import Bag
 
 import Tandoori.Ty
 
-builtinNames = builtinTyNames ++ builtinDataConNames 
+builtinNames = builtinTyNames ++ builtinDataConNames ++ builtinClassNames
     
 mkLcl = do errs_var <- newIORef (emptyBag, emptyBag)
            tvs_var  <- newIORef emptyVarSet
