@@ -58,7 +58,8 @@ tyVarsOf (HsListTy (L _ tyElem))                       = tyVarsOf tyElem
 tyVarsOf (HsForAllTy _ _ _ (L _ ty))                   = tyVarsOf ty
 tyVarsOf (HsBangTy _ (L _ ty))                         = tyVarsOf ty
 tyVarsOf (HsParTy (L _ ty))                            = tyVarsOf ty
-                                               
+
+--- Occurs checking                                                         
 occurs :: TvName -> TanType -> Bool
 occurs x (HsTyVar y)                      = x == y
 occurs x (HsFunTy (L _ left) (L _ right)) = (occurs x left) || (occurs x right)
