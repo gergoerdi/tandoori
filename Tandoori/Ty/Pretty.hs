@@ -47,9 +47,8 @@ prettyTyM (HsForAllTy e lbndrs lctxt lty) = do let bndrs = map unLoc lbndrs
     where prettyTyVarBndrM (UserTyVar name) = do name' <- prettyNameM name
                                                  return $ UserTyVar name'                                                 
                                                         
-          prettyPredM (HsClassP name ltys) = do name' <- prettyNameM name
-                                                tys' <- mapM prettyTyM $ map unLoc ltys
-                                                return $ HsClassP name' (map genLoc tys')
+          prettyPredM (HsClassP name ltys) = do ltys' <- mapM prettyLTyM ltys
+                                                return $ HsClassP name ltys'
 
           prettyLPredM lpred = liftM genLoc $ prettyPredM $ unLoc lpred
                                                               

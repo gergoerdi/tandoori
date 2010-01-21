@@ -34,7 +34,23 @@ instantiateLTyM isPoly lty = liftM noLoc $ instantiateTyM isPoly (unLoc lty)
                                                 
 instantiateTyM :: (TvName -> Bool) -> TanType -> StatefulT Instantiator TanType
 instantiateTyM _      ty                    | isTyCon ty  = return ty
-instantiateTyM isPoly (HsForAllTy _ _ _ lty)              = liftM unLoc $ instantiateLTyM isPoly lty
+instantiateTyM isPoly (HsForAllTy e lbndrs lctxt lty)     = do let bndrs = map unLoc lbndrs
+                                                                   lpreds = unLoc lctxt
+                                                               bndrs' <- mapM instantiateTyVarBndrM bndrs
+                                                               lpreds' <- mapM instantiateLPredM lpreds
+                                                               lty' <- instantiateLTyM isPoly lty
+                                                               let lbndrs' = map genLoc bndrs'
+                                                                   lctxt' = genLoc lpreds'
+                                                               return $ HsForAllTy e lbndrs' lctxt' lty'
+    where instantiateTyVarBndrM bind@(UserTyVar name) | isPoly name = do HsTyVar name' <- ensureTvInst name
+                                                                         return $ UserTyVar name'
+                                                      | otherwise = return bind
+                                                                    
+          instantiatePredM (HsClassP name ltys) = do ltys' <- mapM (instantiateLTyM isPoly) ltys
+                                                     return $ HsClassP name ltys'
+          instantiateLPredM lpred = liftM genLoc $ instantiatePredM $ unLoc lpred
+
+                                                                   
 instantiateTyM isPoly (HsBangTy bang lty)                 = liftM unLoc $ instantiateLTyM isPoly lty
 
 instantiateTyM isPoly ty@(HsTyVar name)     | isPoly name = ensureTvInst name
