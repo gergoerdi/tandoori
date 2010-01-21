@@ -22,8 +22,8 @@ parenIf False s = s
 showTy :: HsType Name -> String
 showTy ty = showTy' C{isLeftOfFun = False} ty
 
-unsupported xs = error $ unwords ("showTy: TODO:":xs)
-                
+unsupported xs = error $ unwords ("showTy: TODO:":xs)                 
+                 
 showTy' :: Context -> HsType Name -> String
 showTy' c (HsForAllTy _ bndrs lctxt lty) = showTy $ unLoc lty
 showTy' c (HsTyVar name)                 = showName name
@@ -37,7 +37,7 @@ showTy' c (HsTupleTy boxity ltys)        = "(" ++ (joinWith ", " $ map (showInPa
 showTy' c (HsOpTy lleft lop lright)      = unsupported ["HsOpTy"]
 showTy' c (HsParTy lty)                  = "(" ++ (showInParen c $ unLoc lty) ++ ")"
 showTy' c (HsNumTy n)                    = unsupported ["HsNumTy", show n]
-showTy' c (HsPredTy pred)                = unsupported ["HsPredTy"]
+showTy' c (HsPredTy pred)                = unwords ["HsPredTy", showPred pred]
 showTy' c (HsKindSig lty kind)           = unsupported ["HsKindSig"]
 showTy' c (HsSpliceTy splice)            = unsupported ["HsSpliceTy"]
 showTy' c (HsDocTy lty ldoc)             = unsupported ["HsDocTy"]
@@ -45,5 +45,8 @@ showTy' c (HsDocTy lty ldoc)             = unsupported ["HsDocTy"]
 showName :: Name -> String
 showName name = occNameString $ nameOccName name
 
+showPred :: HsPred Name -> String
+showPred (HsClassP name ltys) = unwords ["HsClassP", showName name, "[" ++ joinWith ", " (map (showTy . unLoc) ltys) ++ "]"]
+                
 instance Show (HsType Name) where
     show = showTy 

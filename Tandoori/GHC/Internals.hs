@@ -13,7 +13,6 @@ module Tandoori.GHC.Internals
      module DataCon,
      module TysWiredIn,
      module PrelNames,
-     module HsTypes,
      module HsDecls) where
 
 import SrcLoc

@@ -8,11 +8,10 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Maybe
 
-import Tandoori.Kludge.Show    
 import Tandoori.GHC.Internals
 
 newtype Substitution = S (Map.Map TvName TanType)
-
+    
 emptySubst :: Substitution
 emptySubst = S $ Map.empty
 
@@ -27,31 +26,34 @@ lsubstTy :: Substitution -> (Located TanType) -> (Located TanType)
 lsubstTy s = noLoc . substTy s . unLoc
                          
 substTy :: Substitution -> TanType -> TanType
-substTy s (HsFunTy lt lt')  = HsFunTy (lsubstTy s lt) (lsubstTy s lt')
-substTy s (HsAppTy lt lt')  = HsAppTy (lsubstTy s lt) (lsubstTy s lt')
-substTy s ty@(HsTyVar name) = case getSubst s name of
-                                Nothing -> ty
-                                Just ty' -> substTy s ty'
-substTy s (HsListTy lt)     = HsListTy $ lsubstTy s lt
-substTy s (HsTupleTy b lts) = HsTupleTy b $ map (lsubstTy s) lts
-substTy s (HsParTy lty)     = HsParTy (lsubstTy s lty)
+substTy s (HsFunTy lt lt')       = HsFunTy (lsubstTy s lt) (lsubstTy s lt')
+substTy s (HsAppTy lt lt')       = HsAppTy (lsubstTy s lt) (lsubstTy s lt')
+substTy s ty@(HsTyVar name)      = case getSubst s name of
+                                     Nothing   -> ty
+                                     Just ty'  -> substTy s ty'
+substTy s (HsListTy lt)          = HsListTy $ lsubstTy s lt
+substTy s (HsTupleTy b lts)      = HsTupleTy b $ map (lsubstTy s) lts
+                                   
+substTy s (HsParTy lty)          = HsParTy (lsubstTy s lty)
+substTy s (HsDocTy lty ldoc)     = HsDocTy (lsubstTy s lty) ldoc
+                                   
+substTy s (HsBangTy _ _)         = error "substTy: TODO: Bang"
+substTy s (HsForAllTy _ _ _ _)   = error "substTy: TODO: HsForAll"
+substTy s (HsPArrTy _)           = error "substTy: TODO: PArrTy"
+substTy s (HsKindSig _ _)        = error "substTy: TODO: KindSig"
+substTy s (HsNumTy _)            = error "substTy: TODO: NumTy"
+substTy s (HsOpTy _ _ _)         = error "substTy: TODO: OpTy"
+substTy s (HsSpliceTy _)         = error "substTy: TODO: Splice"
+substTy s (HsPredTy _ )          = error "substTy: TODO: Pred"
 
-substTy s (HsBangTy _ _)        = error "substTy: TODO: Bang"
-substTy s (HsForAllTy _ _ _ _)  = error "substTy: TODO: HsForAll"
-substTy s (HsPArrTy _)          = error "substTy: TODO: PArrTy"
-substTy s (HsKindSig _ _)       = error "substTy: TODO: KindSig"
-substTy s (HsNumTy _)           = error "substTy: TODO: NumTy"
-substTy s (HsOpTy _ _ _)        = error "substTy: TODO: OpTy"
-substTy s (HsSpliceTy _)        = error "substTy: TODO: Splice"
-substTy s (HsPredTy _ )         = error "substTy: TODO: Pred"
-substTy s ty                    = error $ show ty
-
+                                   
 fitDecl :: TanType -> TanType -> Either [(TanType, TanType)] Substitution
 fitDecl tDecl t = mgu' True [(t, tDecl)]
                                                   
 mgu :: [(TanType, TanType)] -> Either [(TanType, TanType)] Substitution
 mgu = mgu' False
 
+      
 mgu' :: Bool -> [(TanType, TanType)] -> Either [(TanType, TanType)] Substitution
 mgu' leftOnly []                                                                            = Right $ emptySubst
 mgu' leftOnly ((HsParTy (L _ ty),         ty')                       :eqs)                  = mgu' leftOnly $ (ty, ty'):eqs
@@ -78,8 +80,9 @@ mgu' leftOnly ((t,                        HsForAllTy _ _ _ (L _ t')) :eqs)      
 mgu' leftOnly ((HsBangTy _ (L _ t),       t')                        :eqs)                  = mgu' leftOnly $ (t, t'):eqs
 mgu' leftOnly ((t,                        HsBangTy _ (L _ t'))       :eqs)                  = mgu' leftOnly $ (t, t'):eqs
                                                                                     
-mgu' leftOnly ((t,                        t')                        :eqs)                  = combineErrors (t, t') $ mgu' leftOnly eqs
-                                                       
+mgu' leftOnly ((t,                        t')                        :eqs)                  = combineErrors (t, t') (mgu' leftOnly eqs)
+
+                                                                                              
 combineErrors :: (TanType, TanType) -> Either [(TanType, TanType)] Substitution -> Either [(TanType, TanType)] Substitution
 combineErrors typair (Left errs) = Left $ typair:errs
 combineErrors typair (Right s)   = Left $ [typair]

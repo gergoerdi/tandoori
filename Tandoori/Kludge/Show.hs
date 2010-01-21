@@ -14,9 +14,9 @@ import ForeignCall
 import SrcLoc
 import Outputable
 
-import Tandoori.Ty.PolyEnv
+import Tandoori.Ty.Ctxt
 import Tandoori.Ty.MonoEnv
-
+import Tandoori.Ty.ShowTy
     
 instance Show a => Show (Located a) where
     show lx = "(L " ++ show (unLoc lx) ++ ")"
@@ -139,7 +139,7 @@ deriving instance Show (HaddockModInfo Name)
 deriving instance Show (ImportDecl Name)
 deriving instance Show (IE Name)
 
-deriving instance Show PolyEnv
+deriving instance Show Ctxt
 deriving instance Show MonoEnv         
 
 -- instance (Show (HsType Name)) where

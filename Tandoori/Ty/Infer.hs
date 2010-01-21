@@ -1,11 +1,11 @@
-module Tandoori.Ty.Infer where
+module Tandoori.Ty.Infer(inferValBinds) where
 
 import Tandoori
 import Tandoori.State    
 import Tandoori.Errors
 import Tandoori.Ty
 import Tandoori.Ty.MonoEnv
-import Tandoori.Ty.PolyEnv
+import Tandoori.Ty.Ctxt
 import Tandoori.Ty.Unify
 import Tandoori.Ty.Instantiate
 import Control.Monad.State
@@ -17,46 +17,44 @@ import Tandoori.GHC.Internals
     
 import Bag (bagToList)
     
-tyCon :: PolyEnv -> ConName -> Stateful TanType
-tyCon p name | name == dataConName nilDataCon  = do alpha <- mkTv
+tyCon :: Ctxt -> ConName -> Stateful TanType
+tyCon c name | name == dataConName nilDataCon  = do alpha <- mkTv
                                                     return $ tyList alpha
                                                           
-tyCon p name | name == dataConName consDataCon = do alpha <- mkTv
+tyCon c name | name == dataConName consDataCon = do alpha <- mkTv
                                                     return $ tyCurryFun [alpha, tyList alpha, tyList alpha]
                                                           
-tyCon p name                                   = case getCon p name of
+tyCon c name                                   = case getCon c name of
                                                    Nothing -> do addError (UndefinedCon name)
                                                                  mkTv
                                                    Just ty -> instantiateTy (const True) ty
                              
--- tyCon _ name | name == list_cons_name = do tv <- createTv
---                                            return $ tyCurryFun [tv, tyList tv, tyList tv]
-
-
 maptupM :: (Monad m) => (a -> m (b, c)) -> [a] -> m ([b], [c])
 maptupM action items = do results <- mapM action items
                           return (map fst results, map snd results)
 
 genLoc x = mkGeneralLocated "(internal)" x
-                                 
-infer :: PolyEnv -> (Located TanExpr) -> Stateful (MonoEnv, TanType)
--- infer p expr = withExpr expr (infer' p expr)
-infer p (L srcloc expr) | isGoodSrcSpan srcloc = withSrc expr $ withLoc srcloc $ infer' p expr
-                        | otherwise            = withSrc expr $ infer' p expr
 
-infer' :: PolyEnv -> TanExpr -> Stateful (MonoEnv, TanType)
-infer' p (HsLit lit)                       = return $ justType $ typeOfLit lit
-infer' p (HsOverLit overlit)               = return $ justType $ typeOfOverLit overlit
-infer' p (HsVar name) | isDataConName name = liftM justType (tyCon p name)
+doLoc :: SrcSpan -> Stateful a -> Stateful a
+doLoc srcloc m | isGoodSrcSpan srcloc  = withLoc srcloc $ m
+               | otherwise             = m
+           
+infer :: Ctxt -> (Located TanExpr) -> Stateful (MonoEnv, TanType)
+infer c (L srcloc expr) = doLoc srcloc $ withSrc expr $ infer' c expr
+
+infer' :: Ctxt -> TanExpr -> Stateful (MonoEnv, TanType)
+infer' c (HsLit lit)                       = return $ justType $ typeOfLit lit
+infer' c (HsOverLit overlit)               = return $ justType $ typeOfOverLit overlit
+infer' c (HsVar name) | isDataConName name = liftM justType (tyCon c name)
                                              
-infer' p (ExplicitList _ lexprs)           = do (ms, ts) <- maptupM (infer p) lexprs
+infer' c (ExplicitList _ lexprs)           = do (ms, ts) <- maptupM (infer c) lexprs
                                                 (m, t) <- unify ms ts
                                                 return (m, tyList t)
-infer' p (ExplicitTuple lexprs _)          = do (ms, ts) <- maptupM (infer p) lexprs
+infer' c (ExplicitTuple lexprs _)          = do (ms, ts) <- maptupM (infer c) lexprs
                                                 return (combineMonos ms, tyTuple ts)
                                                        
-infer' p (HsApp lfun lparam)               = do (m1, ty1) <- infer p lfun
-                                                (m2, ty2) <- infer p lparam
+infer' c (HsApp lfun lparam)               = do (m1, ty1) <- infer c lfun
+                                                (m2, ty2) <- infer c lparam
                                                 alpha <- mkTv
                                                 (m, ty) <- unify [m1, m2] [ty1, HsFunTy (genLoc ty2) (genLoc alpha)]
                                                 case ty of
@@ -64,111 +62,112 @@ infer' p (HsApp lfun lparam)               = do (m1, ty1) <- infer p lfun
                                                   _                           -> do beta <- mkTv
                                                                                     return (m, beta)
                                                                  
-infer' p (HsLam (MatchGroup lmatches _))   = do (ms, ts) <- maptupM (inferMatch p) matches
+infer' c (HsLam (MatchGroup lmatches _))   = do (ms, ts) <- maptupM (inferMatch c) matches
                                                 unify ms ts
     where matches = map unLoc lmatches
 
-infer' p (HsVar name) = case getUserDecl p name of
-                          Just lty -> do ty' <- instantiateTy (const True) (unLoc lty)
-                                         return $ justType ty'
-                          Nothing -> inferVar
+infer' c (HsVar name) = case getUserDecl c name of
+                          Just lty  -> do ty' <- instantiateTy (const True) (unLoc lty)
+                                          return $ justType ty'
+                          Nothing   -> inferVar
                                      
-    where inferVar | isLocal p name = newMonoVar
-                   | otherwise      = case getPolyVar p name of
+    where inferVar | isLocal c name = newMonoVar
+                   | otherwise      = case getPolyVar c name of
                                         Nothing     -> do addError (UndefinedVar name)
                                                           newMonoVar
                                         Just (m, t) -> do t' <- instantiateTy isPoly t
                                                           return (m, t')
                                             where isPoly t = not (Set.member t monotyvars)
                                                   monotyvars = Set.unions $ map (tyVarsOf . snd) $ monoVars m
-              where newMonoVar = do alpha <- mkTv; return $ name `typedAs` alpha
+              where newMonoVar = do alpha <- mkTv
+                                    return $ name `typedAs` alpha
                               
-infer' p (HsLet binds lexpr)               = do p' <- inferLocalBinds p binds
-                                                infer p' lexpr
+infer' c (HsLet binds lexpr)               = do c' <- inferLocalBinds c binds
+                                                infer c' lexpr
 
-infer' p (OpApp left op fixity right)      = infer' p $ HsApp (genLoc $ HsApp op left) right
+infer' c (OpApp left op fixity right)      = infer' c $ HsApp (genLoc $ HsApp op left) right
 -- TODO:
-infer' p (NegApp expr negfun)              = error "infer': TODO: NegApp"
-infer' p (HsPar lexpr)                     = infer p lexpr
+infer' c (NegApp expr negfun)              = error "infer': TODO: NegApp"
+infer' c (HsPar lexpr)                     = infer c lexpr
 
--- inferRhs p (HsUnGuardedRhs expr) = infer p expr
--- inferRhs p (GRHS _ lexpr) = do (ms, ts) <- maptupM infer lexprs
+-- inferRhs c (HsUnGuardedRhs expr) = infer c expr
+-- inferRhs c (GRHS _ lexpr) = do (ms, ts) <- maptupM infer lexprs
 --                                unify ms ts
---     where inferGuardedRhs (HsGuardedRhs srcloc expr guard) = withLoc srcloc $ do (m, t) <- infer p expr
---                                                                                  (m', t') <- infer p guard
+--     where inferGuardedRhs (HsGuardedRhs srcloc expr guard) = withLoc srcloc $ do (m, t) <- infer c expr
+--                                                                                  (m', t') <- infer c guard
 --                                                                                  (m'', t'') <- unify [m'] [t', tyBool]
 --                                                                                  unify [m, m''] [t]
 
-inferGRhs p (GRHS _ lexpr) = infer p lexpr
+inferGRhs c (GRHS _ lexpr) = infer c lexpr
 
-inferGRhss p (GRHSs lgrhss _) = do (ms, ts) <- maptupM (inferGRhs p . unLoc) lgrhss
+inferGRhss c (GRHSs lgrhss _) = do (ms, ts) <- maptupM (inferGRhs c . unLoc) lgrhss
                                    unify ms ts
                              
-inferLocalBinds :: PolyEnv -> HsLocalBinds Name -> Stateful PolyEnv
-inferLocalBinds p (HsValBinds vb)     = inferValBinds p vb
-inferLocalBinds p (HsIPBinds ipbinds) = error "inferLocalBinds: HsIPBnds"
-inferLocalBinds p EmptyLocalBinds     = return p                                                           
+inferLocalBinds :: Ctxt -> HsLocalBinds Name -> Stateful Ctxt
+inferLocalBinds c (HsValBinds vb)     = inferValBinds c vb
+inferLocalBinds c (HsIPBinds ipbinds) = error "inferLocalBinds: HsIPBnds"
+inferLocalBinds c EmptyLocalBinds     = return c
 
-inferValBinds :: PolyEnv -> HsValBinds Name -> Stateful PolyEnv
-inferValBinds p (ValBindsOut recbinds lsigs) = foldM inferBinds p' (map snd recbinds)
-    where p' = addUserDecls p lsigs
+inferValBinds :: Ctxt -> HsValBinds Name -> Stateful Ctxt
+inferValBinds c (ValBindsOut recbinds lsigs) = foldM inferBinds c' (map snd recbinds)
+    where c' = addUserDecls c lsigs
                                                
-inferBinds :: PolyEnv -> LHsBinds Name -> Stateful PolyEnv
-inferBinds p lbinds = do (ms, ts) <- maptupM (inferBind p') binds
-                         foldM definePoly p $ zip3 boundnames ms ts
+inferBinds :: Ctxt -> LHsBinds Name -> Stateful Ctxt
+inferBinds c lbinds = do (ms, ts) <- maptupM (inferBind c') binds
+                         foldM definePoly c $ zip3 boundnames ms ts
                                
     where binds = map unLoc $ bagToList lbinds
-          p' = declareLocals p boundnames
+          c' = declareLocals c boundnames
           boundnames = map boundname binds
               where boundname FunBind{fun_id = (L _ name)} = name
                     boundname VarBind{var_id = name}       = name
-          definePoly p (name, m, t) = case (getUserDecl p name) of
-                                        Nothing     -> return $ addPolyVar p name (m, t)
-                                        Just (L loc tyDecl) -> withLoc loc $
-                                                               case fitDecl tyDecl t of
-                                                                 Left errs -> do addError $ CantFitDecl tyDecl t errs
-                                                                                 return $ p
-                                                                 Right _ -> return $ p
+          definePoly c (name, m, t) = case (getUserDecl c name) of
+                                        Nothing              -> return $ addPolyVar c name (m, t)
+                                        Just (L loc tyDecl)  -> doLoc loc $
+                                                                case fitDecl tyDecl t of
+                                                                  Left errs  -> do addError $ CantFitDecl tyDecl t errs
+                                                                                   return $ c
+                                                                  Right _    -> return $ c
                                                    
-inferBind :: PolyEnv -> (HsBind Name) -> Stateful (MonoEnv, TanType)
-inferBind p bind@FunBind{fun_matches = MatchGroup lmatches _} = do (ms, ts) <- maptupM inferLMatch lmatches
-                                                                   unify ms ts
-    where inferLMatch (L srcloc match) = withLoc srcloc $ inferMatch p match
+inferBind :: Ctxt -> (HsBind Name) -> Stateful (MonoEnv, TanType)
+inferBind c FunBind{fun_matches = MatchGroup lmatches _} = do (ms, ts) <- maptupM inferLMatch lmatches
+                                                              unify ms ts
+    where inferLMatch (L srcloc match) = doLoc srcloc $ inferMatch c match
                
-inferMatch :: PolyEnv -> (Match Name) -> Stateful (MonoEnv, TanType)
-inferMatch p (Match lpats _ grhss) = do (ms, ts) <- maptupM (inferPat p . unLoc) lpats
+inferMatch :: Ctxt -> (Match Name) -> Stateful (MonoEnv, TanType)
+inferMatch c (Match lpats _ grhss) = do (ms, ts) <- maptupM (inferPat c . unLoc) lpats
                                         let patternvars = map fst $ concat $ map monoVars ms                                                          
-                                            p' = declareLocals (newScope p) $ patternvars
-                                        (m, t) <- inferGRhss p' grhss
+                                            c' = declareLocals (newScope c) $ patternvars
+                                        (m, t) <- inferGRhss c' grhss
                                         (m', t') <- unify (m:ms) [tyCurryFun (ts ++ [t])]
-                                        return $ (restrictScope p m', t')
-          -- inferScope p f = do let p' = newScope p
-          --                     (m, t) <- f p
-          --                     return $ (restrictScope p m, t)
+                                        return $ (restrictScope c m', t')
+          -- inferScope c f = do let c' = newScope c
+          --                     (m, t) <- f c
+          --                     return $ (restrictScope c m, t)
 
-inferPat :: PolyEnv -> TanPat -> Stateful (MonoEnv, TanType)
-inferPat p (AsPat (L _ name) (L _ pat))      = do (m, t) <- inferPat p pat
+inferPat :: Ctxt -> TanPat -> Stateful (MonoEnv, TanType)
+inferPat c (AsPat (L _ name) (L _ pat))      = do (m, t) <- inferPat c pat
                                                   return (addMonoVar m (name, t), t)
-inferPat p (ParPat (L _ pat))                = inferPat p pat
-inferPat p (WildPat _)                       = do alpha <- mkTv
+inferPat c (ParPat (L _ pat))                = inferPat c pat
+inferPat c (WildPat _)                       = do alpha <- mkTv
                                                   return $ justType alpha
-inferPat p (VarPat name)                     = do alpha <- mkTv
+inferPat c (VarPat name)                     = do alpha <- mkTv
                                                   return $ name `typedAs` alpha
-inferPat p (LitPat lit)                      = return $ justType $ typeOfLit lit
-inferPat p (ConPatIn (L _ conname) details)  = do tycon <- tyCon p conname
-                                                  (ms, ts) <- maptupM (inferPat p) pats
+inferPat c (LitPat lit)                      = return $ justType $ typeOfLit lit
+inferPat c (ConPatIn (L _ conname) details)  = do tycon <- tyCon c conname
+                                                  (ms, ts) <- maptupM (inferPat c) pats
                                                   alpha <- mkTv
                                                   (m, t) <- unify ms [tycon, tyCurryFun (ts ++ [alpha])]
                                                   return (m, last (tyUncurryFun t))
     where pats = case details of
-                   PrefixCon lps -> map unLoc lps
-                   InfixCon (L _ p) (L _ p') -> [p, p']
-inferPat p (TuplePat lpats _ _)              = do (ms, ts) <- maptupM (inferPat p . unLoc) lpats
+                   PrefixCon lpats            -> map unLoc lpats
+                   InfixCon (L _ p) (L _ p')  -> [p, p']
+inferPat c (TuplePat lpats _ _)              = do (ms, ts) <- maptupM (inferPat c . unLoc) lpats
                                                   return (combineMonos ms, tyTuple ts)
-inferPat p (ListPat lpats _)                 = do (ms, ts) <- maptupM (inferPat p . unLoc) lpats
+inferPat c (ListPat lpats _)                 = do (ms, ts) <- maptupM (inferPat c . unLoc) lpats
                                                   (m', t') <- unify ms ts
                                                   return (m', tyList t')
-inferPat p (NPat overlit _ _)                = return $ justType $ typeOfOverLit overlit
+inferPat c (NPat overlit _ _)                = return $ justType $ typeOfOverLit overlit
 
                           
 unify :: [MonoEnv] -> [TanType] -> Stateful (MonoEnv, TanType)
