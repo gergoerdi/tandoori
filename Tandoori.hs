@@ -1,4 +1,4 @@
-module Tandoori (TanType, TanExpr, TanPat, VarName, ConName, TvName, genLoc) where
+module Tandoori (TanType, TanExpr, TanPat, VarName, ConName, TvName) where
 
 import Tandoori.GHC.Internals
 
@@ -8,5 +8,3 @@ type TanPat = Pat Name
 type VarName = Name
 type ConName = Name
 type TvName = Name
-    
-genLoc x = mkGeneralLocated "(internal)" x

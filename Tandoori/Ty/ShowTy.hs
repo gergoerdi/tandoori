@@ -15,32 +15,37 @@ showFunLeft c ty = showTy' c{isLeftOfFun = True} ty
 showFunRight c ty = showTy' c{isLeftOfFun = False} ty
 
 showInParen c ty = showTy' c{isLeftOfFun = False} ty                    
-                    
+
+forceParen = False                   
+
+parenIf :: Bool -> String -> String             
 parenIf True  s = "(" ++ s ++ ")"
-parenIf False s = s
+parenIf False s = if forceParen then (parenIf True s) else s
                     
 showTy :: HsType Name -> String
 showTy ty = showTy' C{isLeftOfFun = False} ty
 
-unsupported xs = error $ unwords ("showTy: TODO:":xs)                 
+todo xs = error $ unwords ("showTy: TODO:":xs)                 
+unsupported xs = error $ unwords ("showTy: Unsupported:":xs)
 
 showTy' :: ShowTyCtxt -> HsType Name -> String
-showTy' c (HsForAllTy e bndrs lctxt lty) = (showPreds $ map unLoc $ unLoc lctxt) ++  (showTy $ unLoc lty)
-showTy' c (HsTyVar name)                 = showName name
-showTy' c (HsBangTy HsNoBang lty)        = showTy' c $ unLoc lty
-showTy' c (HsBangTy _ lty)               = '!':(showTy' c $ unLoc lty)
-showTy' c (HsAppTy lty lty')             = unwords [showTy' c $ unLoc lty, showTy' c $ unLoc lty']
-showTy' c (HsFunTy lty lty')             = parenIf (isLeftOfFun c) $ unwords [showFunLeft c $ unLoc lty, "->", showFunRight c $ unLoc lty']
-showTy' c (HsListTy lty)                 = "[" ++ (showTy' c $ unLoc lty) ++ "]"
-showTy' c (HsPArrTy lty)                 = unsupported ["HsPArrTy"]
-showTy' c (HsTupleTy boxity ltys)        = "(" ++ (joinWith ", " $ map (showInParen c . unLoc) ltys) ++ ")"
-showTy' c (HsOpTy lleft lop lright)      = unsupported ["HsOpTy"]
-showTy' c (HsParTy lty)                  = "(" ++ (showInParen c $ unLoc lty) ++ ")"
-showTy' c (HsNumTy n)                    = unsupported ["HsNumTy", show n]
-showTy' c (HsPredTy pred)                = unwords ["HsPredTy", showPred pred]
-showTy' c (HsKindSig lty kind)           = unsupported ["HsKindSig"]
-showTy' c (HsSpliceTy splice)            = unsupported ["HsSpliceTy"]
-showTy' c (HsDocTy lty ldoc)             = unsupported ["HsDocTy"]
+showTy' c (HsForAllTy e _ lctxt lty)  = (showPreds $ map unLoc $ unLoc lctxt) ++  (showTy $ unLoc lty)
+showTy' c (HsTyVar name)              = showName name
+showTy' c (HsBangTy HsNoBang lty)     = showTy' c $ unLoc lty
+showTy' c (HsBangTy HsStrict lty)     = '!':(showTy' c $ unLoc lty)
+showTy' c (HsBangTy HsUnbox lty)      = '!':(showTy' c $ unLoc lty) -- TODO
+showTy' c (HsAppTy lty lty')          = unwords [showTy' c $ unLoc lty, showTy' c $ unLoc lty']
+showTy' c (HsFunTy lty lty')          = parenIf (isLeftOfFun c) $ unwords [showFunLeft c $ unLoc lty, "->", showFunRight c $ unLoc lty']
+showTy' c (HsListTy lty)              = "[" ++ (showTy' c $ unLoc lty) ++ "]"
+showTy' c (HsTupleTy boxity ltys)     = "(" ++ (joinWith ", " $ map (showInParen c . unLoc) ltys) ++ ")"
+showTy' c (HsOpTy lleft lop lright)   = todo ["HsOpTy"]
+showTy' c (HsParTy lty)               = "(" ++ (showInParen c $ unLoc lty) ++ ")"
+showTy' c (HsPredTy pred)             = unsupported ["HsPredTy", showPred pred]
+showTy' c (HsNumTy n)                 = unsupported ["HsNumTy", show n]
+showTy' c (HsPArrTy lty)              = unsupported ["HsPArrTy", showTy' c (unLoc lty)]
+showTy' c (HsKindSig lty kind)        = unsupported ["HsKindSig"]
+showTy' c (HsSpliceTy splice)         = unsupported ["HsSpliceTy"]
+showTy' c (HsDocTy lty ldoc)          = unsupported ["HsDocTy", showTy' c (unLoc lty)]
                                                
 showName :: Name -> String
 showName name = occNameString $ nameOccName name

@@ -1,8 +1,9 @@
 module Tandoori.Ty.Ctxt where
---module Tandoori.Ty.PolyEnv (PolyEnv, mkPoly, getCon, getPolyVar, addPolyVar, addUserDecls, getUserDecl, removePolyVars, isLocal, declareLocals) where
+--module Tandoori.Ty.Ctxt (Ctxt, mkCtxt, getCon, getPolyVar, addPolyVar, addUserDecls, getUserDecl, removePolyVars, isLocal, declareLocals, newScope, restrictScope, printCtxt) where
 
 import Tandoori
 import Tandoori.Ty
+import Tandoori.Ty.ShowTy
 import Tandoori.Ty.Canonize
 import Tandoori.Ty.MonoEnv
 import Tandoori.Ty.Pretty
@@ -25,8 +26,8 @@ printCtxt :: Ctxt -> IO ()
 printCtxt c = do print $ tabTy (rowsDecl ++ rowsInfer)
                           
     where showNameShort qname = occNameString $ nameOccName qname
-          --showTy ty = show $ prettyTy ty
-          showTy ty = showSDocUnqual $ ppr $ prettyTy ty
+          showTy ty = show $ prettyTy ty
+          --showTy ty = showSDocUnqual $ ppr $ prettyTy ty
                                 
           rowFromInfer name (m, ty) = (showNameShort name, showTy ty)
           rowFromDecl name ty = (showNameShort name, showTy ty)

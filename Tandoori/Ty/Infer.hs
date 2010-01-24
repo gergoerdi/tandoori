@@ -1,9 +1,11 @@
 module Tandoori.Ty.Infer(inferValBinds) where
 
 import Tandoori
+import Tandoori.Util
 import Tandoori.State    
 import Tandoori.Errors
 import Tandoori.Ty
+import Tandoori.Ty.Canonize
 import Tandoori.Ty.MonoEnv
 import Tandoori.Ty.Ctxt
 import Tandoori.Ty.Unify
@@ -59,16 +61,17 @@ infer' c (ExplicitList _ lexprs)           = do (ms, ts) <- maptupM (infer c) le
                                                 (m, t) <- unify ms ts
                                                 return (m, tyList t)
 infer' c (ExplicitTuple lexprs _)          = do (ms, ts) <- maptupM (infer c) lexprs
-                                                return (combineMonos ms, tyTuple ts)
+                                                unify ms [tyTuple ts]
                                                        
 infer' c (HsApp lfun lparam)               = do (m1, ty1) <- infer c lfun
                                                 (m2, ty2) <- infer c lparam
                                                 alpha <- mkTv
-                                                (m, ty) <- unify [m1, m2] [ty1, HsFunTy (genLoc ty2) (genLoc alpha)]
-                                                case ty of
-                                                  HsFunTy (L _ ty3) (L _ ty4) -> return (m, ty4)
-                                                  _                           -> do beta <- mkTv
-                                                                                    return (m, beta)
+                                                (m, ty) <- unify [m1, m2] [ty1, HsFunTy (noLoc ty2) (noLoc alpha)]
+                                                case (canonizeTy ty) of
+                                                  HsFunTy (L _ ty3) (L _ ty4)                    -> return (m, ty4)
+                                                  HsForAllTy e _ lctxt (L _ (HsFunTy lty3 lty4)) -> return (m, (HsForAllTy e noBinder lctxt lty4))
+                                                  _                                              -> do beta <- mkTv
+                                                                                                       return (m, beta)
                                                                  
 infer' c (HsLam (MatchGroup lmatches _))   = do (ms, ts) <- maptupM (inferMatch c) matches
                                                 unify ms ts
@@ -185,7 +188,7 @@ unify ms tys = do eqs <- monoeqs
                   case mgu (eqs ++ eqs') of
                     Left errs -> do addError $ UnificationFailed ms errs
                                     return $ (combineMonos ms, alpha)
-                    Right subst -> return $ (combineMonos (map (substMono subst) ms), substTy subst alpha)
+                    Right (subst, preds) -> return $ (combineMonos (map (substMono subst) ms), substTy subst alpha)
                                   
     where monoeqs = do let vars = concat $ map monoVars ms
                            varnames = distinct $ map fst vars

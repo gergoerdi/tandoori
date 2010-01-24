@@ -2,6 +2,7 @@ module Tandoori.Ty.Pretty(prettyTy, prettyTyM, runPretty) where
 
 import Tandoori.GHC.Internals
 import Tandoori
+import Tandoori.Util
     
 import Data.Char
 import Control.Monad.State    
@@ -36,18 +37,12 @@ prettyLTyM (L srcloc ty) = do ty' <- prettyTyM ty
                               return $ L srcloc ty'
 
 prettyTyM :: HsType Name -> State PrettyS (HsType Name)
-prettyTyM (HsForAllTy e lbndrs lctxt lty) = do let bndrs = map unLoc lbndrs
-                                                   lpreds = unLoc lctxt
-                                               bndrs' <- mapM prettyTyVarBndrM bndrs
-                                               lpreds' <- mapM prettyLPredM lpreds
-                                               lty' <- prettyLTyM lty
-                                               let lbndrs' = map genLoc bndrs'
-                                                   lctxt' = genLoc lpreds'
-                                               return $ HsForAllTy e lbndrs' lctxt' lty'
-    where prettyTyVarBndrM (UserTyVar name) = do name' <- prettyNameM name
-                                                 return $ UserTyVar name'                                                 
-                                                        
-          prettyPredM (HsClassP name ltys) = do ltys' <- mapM prettyLTyM ltys
+prettyTyM (HsForAllTy e _ lctxt lty) = do let lpreds = unLoc lctxt
+                                          lty' <- prettyLTyM lty
+                                          lpreds' <- mapM prettyLPredM lpreds
+                                          let lctxt' = genLoc lpreds'
+                                          return $ HsForAllTy e noBinder lctxt' lty'
+    where prettyPredM (HsClassP name ltys) = do ltys' <- mapM prettyLTyM ltys
                                                 return $ HsClassP name ltys'
 
           prettyLPredM lpred = liftM genLoc $ prettyPredM $ unLoc lpred

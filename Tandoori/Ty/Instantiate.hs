@@ -3,6 +3,7 @@ module Tandoori.Ty.Instantiate (instantiateTy, instantiateTyM, newInstantiator, 
 import Tandoori
 import Tandoori.State
 import Tandoori.Ty
+import Tandoori.Util
 import Tandoori.GHC.Internals
     
 import qualified Data.Map as Map
@@ -34,19 +35,12 @@ instantiateLTyM isPoly lty = liftM noLoc $ instantiateTyM isPoly (unLoc lty)
                                                 
 instantiateTyM :: (TvName -> Bool) -> TanType -> StatefulT Instantiator TanType
 instantiateTyM _      ty                    | isTyCon ty  = return ty
-instantiateTyM isPoly (HsForAllTy e lbndrs lctxt lty)     = do let bndrs = map unLoc lbndrs
-                                                                   lpreds = unLoc lctxt
-                                                               bndrs' <- mapM instantiateTyVarBndrM bndrs
-                                                               lpreds' <- mapM instantiateLPredM lpreds
+instantiateTyM isPoly (HsForAllTy e _ lctxt lty)          = do let lpreds = unLoc lctxt
                                                                lty' <- instantiateLTyM isPoly lty
-                                                               let lbndrs' = map genLoc bndrs'
-                                                                   lctxt' = genLoc lpreds'
-                                                               return $ HsForAllTy e lbndrs' lctxt' lty'
-    where instantiateTyVarBndrM bind@(UserTyVar name) | isPoly name = do HsTyVar name' <- ensureTvInst name
-                                                                         return $ UserTyVar name'
-                                                      | otherwise = return bind
-                                                                    
-          instantiatePredM (HsClassP name ltys) = do ltys' <- mapM (instantiateLTyM isPoly) ltys
+                                                               lpreds' <- mapM instantiateLPredM lpreds
+                                                               let lctxt' = genLoc lpreds'
+                                                               return $ HsForAllTy e noBinder lctxt' lty'
+    where instantiatePredM (HsClassP name ltys) = do ltys' <- mapM (instantiateLTyM isPoly) ltys
                                                      return $ HsClassP name ltys'
           instantiateLPredM lpred = liftM genLoc $ instantiatePredM $ unLoc lpred
 
