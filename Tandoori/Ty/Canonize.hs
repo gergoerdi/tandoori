@@ -7,12 +7,49 @@ import Tandoori.GHC.Internals
 data CanonizationRes = CanonizationRes [HsPred Name]
 
 isTrivialRes :: CanonizationRes -> Bool
-isTrivialRes (CanonizationRes []) = True
-isTrivialRes _                    = False
+isTrivialRes (CanonizationRes preds) = null preds
 
 forallFromRes :: CanonizationRes -> TanType -> TanType
-forallFromRes (CanonizationRes preds) ty = HsForAllTy Implicit noBinder (genLoc (map genLoc preds)) (genLoc ty)
-                                      
+forallFromRes (CanonizationRes preds) ty = HsForAllTy Implicit noBinder lctxt lty
+    where lctxt = genLoc (map genLoc preds')
+          preds' = unique $ concat $ map flattenPreds preds
+          lty = genLoc ty
+
+instance Eq HsBang where
+    HsNoBang  ==  HsNoBang  = True
+    HsStrict  ==  HsStrict  = True
+    HsUnbox   ==  HsUnbox   = True
+    
+instance Eq name => Eq (HsType name) where
+    (HsTyVar tv)            ==  (HsTyVar tv')              = tv == tv'
+    (HsBangTy b lty)        ==  (HsBangTy b' lty')         = b == b' && lty == lty'
+    (HsAppTy lty1 lty2)     ==  (HsAppTy lty1' lty2')      = lty1 == lty1' && lty2 == lty2'
+    (HsFunTy lty1 lty2)     ==  (HsFunTy lty1' lty2')      = lty1 == lty1' && lty2 == lty2'
+    (HsListTy lty)          ==  (HsListTy lty')            = lty == lty'
+    (HsTupleTy b ltys)      ==  (HsTupleTy b' ltys')       = b == b' && ltys == ltys'
+
+    (HsParTy lty)           ==  ty'                        = (unLoc lty) == ty'
+    ty                      ==  (HsParTy lty')             = ty == (unLoc lty')
+                                                        
+    (HsOpTy lty1 lop lty2)  ==  ty'                        = HsAppTy (noLoc $ HsAppTy (noLoc $ HsTyVar (unLoc lop)) lty1) lty2 == ty'
+    ty                      ==  (HsOpTy lty1' lop' lty2')  = ty == HsAppTy (noLoc $ HsAppTy (noLoc $ HsTyVar (unLoc lop')) lty1') lty2'
+
+    _                       ==  _                          = False
+                                                             
+instance Eq name => Eq (HsPred name) where
+    (HsClassP cls [lty]) == (HsClassP cls' [lty']) = (cls == cls') && (lty == lty')
+
+instance Eq a => Eq (Located a) where
+    (L _ x) == (L _ y) = x == y                                              
+                
+unique []                   = []
+unique (x:xs)  | elem x xs  = unique xs
+               | otherwise  = x:unique xs
+
+flattenPreds :: HsPred Name -> [HsPred Name]
+flattenPreds (HsClassP cls [lty]) = (HsClassP cls [lty']):preds
+    where (lty', CanonizationRes preds) = canonizeLTy lty
+                                           
 combineRes :: [CanonizationRes] -> CanonizationRes
 combineRes [res] = res
 combineRes ((CanonizationRes preds):ress) = let CanonizationRes preds' = combineRes ress
