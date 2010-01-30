@@ -55,7 +55,9 @@ typeOfOverLit (OverLit { ol_val = val }) = do alpha@(HsTyVar alpha_name) <- mkTv
 infer' :: Ctxt -> TanExpr -> Stateful (MonoEnv, TanType)
 infer' c (HsLit lit)                       = return $ justType $ typeOfLit lit
 infer' c (HsOverLit overlit)               = liftM justType $ typeOfOverLit overlit
-infer' c (HsVar name) | isDataConName name = liftM justType (tyCon c name)
+infer' c (HsVar name) | isDataConName name = do ty <- tyCon c name
+                                                ty' <- canonizeTy c ty
+                                                return $ justType ty'
                                              
 infer' c (ExplicitList _ lexprs)           = do (ms, ts) <- maptupM (infer c) lexprs
                                                 (m, t) <- unify ms ts
@@ -67,7 +69,8 @@ infer' c (HsApp lfun lparam)               = do (m1, ty1) <- infer c lfun
                                                 (m2, ty2) <- infer c lparam
                                                 alpha <- mkTv
                                                 (m, ty) <- unify [m1, m2] [ty1, HsFunTy (noLoc ty2) (noLoc alpha)]
-                                                case (canonizeTy ty) of
+                                                ty' <- canonizeTy c ty
+                                                case ty' of
                                                   HsFunTy (L _ ty3) (L _ ty4)                    -> return (m, ty4)
                                                   HsForAllTy e _ lctxt (L _ (HsFunTy lty3 lty4)) -> return (m, (HsForAllTy e noBinder lctxt lty4))
                                                   _                                              -> do beta <- mkTv
@@ -79,7 +82,8 @@ infer' c (HsLam (MatchGroup lmatches _))   = do (ms, ts) <- maptupM (inferMatch 
 
 infer' c (HsVar name) = case getUserDecl c name of
                           Just lty  -> do ty' <- instantiateTy (const True) (unLoc lty)
-                                          return $ justType ty'
+                                          ty'' <- canonizeTy c ty'
+                                          return $ justType ty''
                           Nothing   -> inferVar
                                      
     where inferVar | isLocal c name = newMonoVar
@@ -132,13 +136,14 @@ inferBinds c lbinds = do (ms, ts) <- maptupM (inferBind c') binds
           boundnames = map boundname binds
               where boundname FunBind{fun_id = (L _ name)} = name
                     boundname VarBind{var_id = name}       = name
-          definePoly c (name, m, t) = case (getUserDecl c name) of
-                                        Nothing              -> return $ addPolyVar c name (m, t)
-                                        Just (L loc tyDecl)  -> doLoc loc $
-                                                                case fitDecl tyDecl t of
-                                                                  Left errs  -> do addError $ CantFitDecl tyDecl t errs
-                                                                                   return $ c
-                                                                  Right _    -> return $ c
+          definePoly c (name, m, ty) = case (getUserDecl c name) of
+                                         Nothing              -> do ty' <- canonizeTy c ty
+                                                                    return $ addPolyVar c name (m, ty')
+                                         Just (L loc tyDecl)  -> doLoc loc $
+                                                                 case fitDecl tyDecl ty of
+                                                                   Left errs  -> do addError $ CantFitDecl tyDecl ty errs
+                                                                                    return $ c
+                                                                   Right _    -> return $ c
                                                    
 inferBind :: Ctxt -> (HsBind Name) -> Stateful (MonoEnv, TanType)
 inferBind c FunBind{fun_matches = MatchGroup lmatches _} = do (ms, ts) <- maptupM inferLMatch lmatches

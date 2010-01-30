@@ -4,7 +4,6 @@ module Tandoori.Ty.Ctxt where
 import Tandoori
 import Tandoori.Ty
 import Tandoori.Ty.ShowTy
-import Tandoori.Ty.Canonize
 import Tandoori.Ty.MonoEnv
 import Tandoori.Ty.Pretty
 import Tandoori.GHC.Internals
@@ -56,8 +55,7 @@ getPolyVar :: Ctxt -> VarName -> Maybe (MonoEnv, TanType)
 getPolyVar c = flip Map.lookup (polyvars c)
 
 addPolyVar :: Ctxt -> VarName -> (MonoEnv, TanType) -> Ctxt
-addPolyVar c name (m, ty) = c{polyvars = Map.insert name (m, ty') (polyvars c)}
-    where ty' = canonizeTy ty
+addPolyVar c name (m, ty) = c{polyvars = Map.insert name (m, ty) (polyvars c)}
 
 addUserDecls :: Ctxt -> [LSig Name] -> Ctxt
 addUserDecls c sigs = foldl addDecl c sigs

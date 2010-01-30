@@ -2,7 +2,6 @@ module Tandoori.Ty.MonoEnv where
 --module Tandoori.Ty.MonoEnv(MonoEnv, justType, typedAs, monoVars, combineMonos, removeMonoVars, filterMonoVars, mapMono) where
 
 import Tandoori
-import Tandoori.Ty.Canonize
 import Control.Monad.State
 import qualified Data.Map as Map
 import Data.Maybe
@@ -14,19 +13,13 @@ emptyMono :: MonoEnv
 emptyMono = MonoEnv (Map.empty)
 
 justType :: TanType -> (MonoEnv, TanType)
-justType ty = (emptyMono, ty')
-    where ty' = canonizeTy ty
+justType ty = (emptyMono, ty)
 
 typedAs :: VarName -> TanType -> (MonoEnv, TanType)
-name `typedAs` ty = (addMonoVar' emptyMono (name, ty'), ty')
-    where ty' = canonizeTy ty
+name `typedAs` ty = (addMonoVar emptyMono (name, ty), ty)
             
 addMonoVar :: MonoEnv -> (VarName, TanType) -> MonoEnv
-addMonoVar m (name, ty) = addMonoVar' m (name, ty')
-    where ty' = canonizeTy ty
-
-addMonoVar' :: MonoEnv -> (VarName, TanType) -> MonoEnv
-addMonoVar' (MonoEnv m) (name, ty) = MonoEnv (Map.insert name ty m)
+addMonoVar (MonoEnv m) (name, ty) = MonoEnv (Map.insert name ty m)
 
 getMonoVar :: MonoEnv -> VarName -> Maybe TanType
 getMonoVar (MonoEnv m) name = Map.lookup name m

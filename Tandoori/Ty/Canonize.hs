@@ -3,6 +3,8 @@ module Tandoori.Ty.Canonize (canonizeTy) where
 import Tandoori
 import Tandoori.Util
 import Tandoori.Ty
+import Tandoori.Ty.Ctxt
+import Tandoori.State
 import Tandoori.GHC.Internals
 import qualified Data.Set as Set
     
@@ -11,8 +13,8 @@ data CanonizationRes = CanonizationRes [HsPred Name]
 isTrivialRes :: CanonizationRes -> Bool
 isTrivialRes (CanonizationRes preds) = null preds
 
-forallFromRes :: CanonizationRes -> TanType -> TanType
-forallFromRes (CanonizationRes preds) ty = HsForAllTy Implicit noBinder lctxt lty
+forallFromRes :: Ctxt -> CanonizationRes -> TanType -> TanType
+forallFromRes c (CanonizationRes preds) ty = HsForAllTy Implicit noBinder lctxt lty
     where lctxt = genLoc (map genLoc preds')
           preds' = filter occursInTy $ distinct $ concat $ map flattenPreds preds
           lty = genLoc ty
@@ -58,9 +60,9 @@ combineRes [res] = res
 combineRes ((CanonizationRes preds):ress) = let CanonizationRes preds' = combineRes ress
                                             in CanonizationRes (preds ++ preds')
                      
-canonizeTy :: TanType -> TanType
-canonizeTy ty | isTrivialRes res = ty'
-              | otherwise = forallFromRes res ty'
+canonizeTy :: Ctxt -> TanType -> Stateful TanType
+canonizeTy c ty | isTrivialRes res = return ty'
+                | otherwise = return $ forallFromRes c res ty'
     where (ty', res) = canonizeTy' ty
                        
 canonizeLTy :: (Located TanType) -> (Located TanType, CanonizationRes)
@@ -72,7 +74,7 @@ liftCanonizeTy f lty = let (lty', res) = canonizeLTy lty
                        in (f lty', res)
 
 canonizeTy' :: TanType -> (TanType, CanonizationRes)
-canonizeTy' tv@(HsTyVar name)          = (tv, CanonizationRes [])
+canonizeTy' ty@(HsTyVar tv)            = (ty, CanonizationRes [])
 canonizeTy' (HsFunTy lty1 lty2)        = let (lty1', res1) = canonizeLTy lty1
                                              (lty2', res2) = canonizeLTy lty2
                                              res = combineRes [res1, res2]
