@@ -2,7 +2,9 @@ module Tandoori.Ty.Canonize (canonizeTy) where
 
 import Tandoori
 import Tandoori.Util
+import Tandoori.Ty
 import Tandoori.GHC.Internals
+import qualified Data.Set as Set
     
 data CanonizationRes = CanonizationRes [HsPred Name]
 
@@ -12,8 +14,9 @@ isTrivialRes (CanonizationRes preds) = null preds
 forallFromRes :: CanonizationRes -> TanType -> TanType
 forallFromRes (CanonizationRes preds) ty = HsForAllTy Implicit noBinder lctxt lty
     where lctxt = genLoc (map genLoc preds')
-          preds' = unique $ concat $ map flattenPreds preds
+          preds' = filter occursInTy $ distinct $ concat $ map flattenPreds preds
           lty = genLoc ty
+          occursInTy (HsClassP cls [lty']) = any (flip occurs ty) $ Set.toList $ tyVarsOf $ unLoc lty'
 
 instance Eq HsBang where
     HsNoBang  ==  HsNoBang  = True
@@ -42,9 +45,9 @@ instance Eq name => Eq (HsPred name) where
 instance Eq a => Eq (Located a) where
     (L _ x) == (L _ y) = x == y                                              
                 
-unique []                   = []
-unique (x:xs)  | elem x xs  = unique xs
-               | otherwise  = x:unique xs
+distinct []                   = []
+distinct (x:xs)  | elem x xs  = distinct xs
+                 | otherwise  = x:distinct xs
 
 flattenPreds :: HsPred Name -> [HsPred Name]
 flattenPreds (HsClassP cls [lty]) = (HsClassP cls [lty']):preds
