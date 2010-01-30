@@ -23,5 +23,5 @@ testList x = forceBoth (forceList x)
 testInt x = forceBoth (forceInt x)
 testString x = forceBoth (forceString x)
 
-testDecl :: a -> (a, a)
+testDecl :: a -> (a, a, a)
 testDecl = forceBoth

@@ -65,7 +65,7 @@ substPred s (HsClassP c [lty]) = HsClassP c [substLTy s lty]
 type UnsolvableEqs = [(TanType, TanType)]
     
 fitDecl :: TanType -> TanType -> Either UnsolvableEqs UnificationRes
-fitDecl tDecl t = mgu' True [(t, tDecl)]
+fitDecl tyDecl ty = mgu' True [(ty, tyDecl)]
                                                   
 mgu :: [(TanType, TanType)] -> Either UnsolvableEqs UnificationRes
 mgu = mgu' False
@@ -98,9 +98,9 @@ mgu' leftOnly ((HsBangTy _ (L _ t),            t')                             :
 mgu' leftOnly ((t,                             HsBangTy _ (L _ t'))            :eqs)                  = mgu' leftOnly $ (t, t'):eqs
 
 mgu' leftOnly ((HsForAllTy _ _ lctxt (L _ t),  t')                             :eqs)                  = case mgu' leftOnly $ (t, t'):eqs of
-                                                                                                             Left errs -> Left errs
-                                                                                                             Right (s, preds) -> Right (s, preds' ++ preds)
-                                                                                                                 where preds' = map (unLoc . (substLPred s)) (unLoc lctxt)
+                                                                                                          Left errs -> Left errs
+                                                                                                          Right (s, preds) -> Right (s, preds' ++ preds)
+                                                                                                              where preds' = map (unLoc . (substLPred s)) (unLoc lctxt)
 mgu' leftOnly ((t,                             HsForAllTy _ _ lctxt (L _ t'))  :eqs)                  = case mgu' leftOnly $ (t, t'):eqs of
                                                                                                           Left errs -> Left errs
                                                                                                           Right (s, preds) -> Right (s, preds' ++ preds)

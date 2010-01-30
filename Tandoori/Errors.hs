@@ -6,10 +6,9 @@ import Tandoori
 import Tandoori.GHC.Internals    
 import Tandoori.Ty.MonoEnv
 import Tandoori.Ty.Pretty
+import Tandoori.Ty.ShowTy
     
 import Data.Maybe
-
-pshow x = showSDoc $ ppr x
 
 data ErrorSource = forall src. Outputable src => ErrorSource src                                  
 data ErrorLocation = ErrorLocation SrcSpan (Maybe ErrorSource)
@@ -33,7 +32,7 @@ data ErrorContent = OtherMessage String
                   | UnificationFailed [MonoEnv] [(TanType, TanType)]
                   | CantFitDecl TanType TanType [(TanType, TanType)]
 
-showFailedEqs sep typairs = unwords $ map (\ (t1, t2) -> unwords [pshow t1, sep, pshow t2]) typairs
+showFailedEqs sep typairs = unwords $ map (\ (t1, t2) -> unwords [show t1, sep, show t2]) typairs
 
 instance Outputable ErrorContent where
     ppr (UndefinedCon name)              = text "Reference to undefined constructor" <+> ppr name
@@ -43,7 +42,7 @@ instance Outputable ErrorContent where
               prettyTyPairM (t, u) = do t' <- prettyTyM t
                                         u' <- prettyTyM u
                                         return (t', u')
-    ppr (CantFitDecl tyDecl ty typairs)  = text "Declared type" <+> ppr tyDecl' <+> text "is not a special case of inferred type" <+> ppr ty'
+    ppr (CantFitDecl tyDecl ty typairs)  = text "Declared type" <+> text (show tyDecl') <+> text "is not a special case of inferred type" <+> text (show ty')
         where (tyDecl', ty') = runPretty $ do tyDecl' <- prettyTyM tyDecl
                                               ty' <- prettyTyM ty
                                               return (tyDecl', ty')
@@ -57,7 +56,7 @@ instance Show ErrorContent where
               prettyTyPairM (t, u) = do t' <- prettyTyM t
                                         u' <- prettyTyM u
                                         return (t', u')
-    show (CantFitDecl tyDecl ty typairs) = unwords ["Declared type", pshow tyDecl', "is not a special case of inferred type", pshow ty']
+    show (CantFitDecl tyDecl ty typairs) = unwords ["Declared type", show tyDecl', "is not a special case of inferred type", show ty']
         where (tyDecl', ty') = runPretty $ do tyDecl' <- prettyTyM tyDecl
                                               ty' <- prettyTyM ty
                                               return (tyDecl', ty')

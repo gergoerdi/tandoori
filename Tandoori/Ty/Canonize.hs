@@ -1,4 +1,4 @@
-module Tandoori.Ty.Canonize (canonizeTy) where
+module Tandoori.Ty.Canonize (canonizeTy, ensuresPredicates) where
 
 import Tandoori
 import Tandoori.Util
@@ -16,7 +16,7 @@ isTrivialRes (CanonizationRes preds) = null preds
 forallFromRes :: Ctxt -> CanonizationRes -> TanType -> TanType
 forallFromRes c (CanonizationRes preds) ty = HsForAllTy Implicit noBinder lctxt lty
     where lctxt = genLoc (map genLoc preds')
-          preds' = filter occursInTy $ distinct $ concat $ map flattenPreds preds
+          preds' = filter occursInTy $ flattenPreds preds
           lty = genLoc ty
           occursInTy (HsClassP cls [lty']) = any (flip occurs ty) $ Set.toList $ tyVarsOf $ unLoc lty'
 
@@ -51,8 +51,17 @@ distinct []                   = []
 distinct (x:xs)  | elem x xs  = distinct xs
                  | otherwise  = x:distinct xs
 
-flattenPreds :: HsPred Name -> [HsPred Name]
-flattenPreds (HsClassP cls [lty]) = (HsClassP cls [lty']):preds
+ensuresPredicates []     _                         = True
+ensuresPredicates preds  (HsForAllTy _ _ lctxt _)  = preds `isSubsetOf` preds'
+    where preds' = flattenPreds $ map unLoc $ unLoc lctxt
+          xs `isSubsetOf` ys = all (flip elem ys) xs
+ensuresPredicates _      _                         = False                                
+
+flattenPreds :: [HsPred Name] -> [HsPred Name]
+flattenPreds preds = distinct $ concat $ map flattenPred preds
+    
+flattenPred :: HsPred Name -> [HsPred Name]
+flattenPred (HsClassP cls [lty]) = (HsClassP cls [lty']):preds
     where (lty', CanonizationRes preds) = canonizeLTy lty
                                            
 combineRes :: [CanonizationRes] -> CanonizationRes
