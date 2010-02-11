@@ -60,7 +60,7 @@ substLPred :: Substitution -> LHsPred Name -> LHsPred Name
 substLPred s = noLoc . substPred s . unLoc
                                  
 substPred :: Substitution -> HsPred Name -> HsPred Name
-substPred s (HsClassP c [lty]) = HsClassP c [substLTy s lty]
+substPred s (HsClassP cls [lty]) = HsClassP cls [substLTy s lty]
 
 type UnsolvableEqs = [(TanType, TanType)]
     
@@ -116,5 +116,5 @@ combineErrors typair (Right _)   = Left $ [typair]
 explodePreds :: [TvName] -> [LHsPred Name] -> [(TvName, [LHsPred Name])]
 explodePreds tvs lpreds = map explode tvs
     where explode tv = (tv, filter (occursLPred tv) lpreds)
-          occursPred tv (HsClassP c [lty]) = occurs tv (unLoc lty)
+          occursPred tv (HsClassP cls [lty]) = occurs tv (unLoc lty)
           occursLPred tv = occursPred tv . unLoc                           

@@ -160,7 +160,7 @@ inferMatch c (Match lpats _ grhss) = do (ms, ts) <- maptupM (inferPat c . unLoc)
                                             c' = declareLocals (newScope c) $ patternvars
                                         (m, t) <- inferGRhss c' grhss
                                         (m', t') <- unify (m:ms) [tyCurryFun (ts ++ [t])]
-                                        return $ (restrictScope c m', t')
+                                        return $ (m', t')
           -- inferScope c f = do let c' = newScope c
           --                     (m, t) <- f c
           --                     return $ (restrictScope c m, t)
