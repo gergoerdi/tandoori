@@ -94,18 +94,13 @@ infer' c (HsVar name) = case getUserDecl c name of
                           Just lty  -> do ty' <- instantiateTy (const True) (unLoc lty)
                                           ty'' <- canonizeTy c ty'
                                           return $ justType ty''
-                          Nothing   -> inferVar
-                                     
-    where inferVar | isLocal c name = newMonoVar
-                   | otherwise      = case getPolyVar c name of
-                                        Nothing     -> do addError (UndefinedVar name)
-                                                          newMonoVar
-                                        Just (m, t) -> do t' <- instantiateTy isPoly t
-                                                          return (m, t')
-                                            where isPoly t = not (Set.member t monotyvars)
-                                                  monotyvars = Set.unions $ map (tyVarsOf . snd) $ monoVars m
-              where newMonoVar = do alpha <- mkTv
-                                    return $ name `typedAs` alpha
+                          Nothing   -> case getPolyVar c name of
+                                         Nothing -> do alpha <- mkTv
+                                                       return $ name `typedAs` alpha
+                                         Just (m, t) -> do t' <- instantiateTy isPoly t
+                                                           return (m, t')
+                                             where isPoly t = not (Set.member t monotyvars)
+                                                   monotyvars = Set.unions $ map (tyVarsOf . snd) $ monoVars m
                               
 infer' c (HsLet binds lexpr)               = do c' <- inferLocalBinds c binds
                                                 infer c' lexpr
@@ -161,9 +156,7 @@ inferBinds c lbinds = do let binds = map unLoc $ bagToList lbinds
                                                                                                
 inferBind :: Ctxt -> (HsBind Name) -> Stateful (Set.Set Name, MonoEnv)
 inferBind c PatBind{pat_lhs = lpat, pat_rhs = grhss} = do (ns, m, t) <- inferPat c (unLoc lpat)
-                                                          let patternvars = map fst $ monoVars m
-                                                              c' = declareLocals (newScope c) patternvars
-                                                          (m', t') <- inferGRhss c' grhss
+                                                          (m', t') <- inferGRhss c grhss
                                                           (m'', _) <- unify [m, m'] [t, t']
                                                           return (ns, m'')
 inferBind c VarBind{} = error "VarBind"
@@ -175,14 +168,9 @@ inferBind c FunBind{fun_matches = MatchGroup lmatches _, fun_id = (L _ name)} = 
                
 inferMatch :: Ctxt -> (Match Name) -> Stateful (MonoEnv, TanType)
 inferMatch c (Match lpats _ grhss) = do (_, ms, ts) <- maptup3M (inferPat c . unLoc) lpats
-                                        let patternvars = map fst $ concat $ map monoVars ms                                                          
-                                            c' = declareLocals (newScope c) patternvars
-                                        (m, t) <- inferGRhss c' grhss
+                                        (m, t) <- inferGRhss c grhss
                                         (m', t') <- unify (m:ms) [tyCurryFun (ts ++ [t])]
                                         return $ (m', t')
-          -- inferScope c f = do let c' = newScope c
-          --                     (m, t) <- f c
-          --                     return $ (restrictScope c m, t)
 
 justTypeLit :: TanType -> (Set.Set VarName, MonoEnv, TanType)
 justTypeLit t = let (m, t) = justType t in (Set.empty, m, t)

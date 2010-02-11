@@ -1,5 +1,4 @@
-module Tandoori.Ty.Ctxt where
---module Tandoori.Ty.Ctxt (Ctxt, mkCtxt, getCon, getPolyVar, addPolyVar, addUserDecls, getUserDecl, removePolyVars, isLocal, declareLocals, newScope, restrictScope, printCtxt) where
+module Tandoori.Ty.Ctxt (Ctxt(..), mkCtxt, getCon, getPolyVar, addPolyVar, addUserDecls, getUserDecl, removePolyVars, printCtxt) where
 
 import Tandoori
 import Tandoori.Ty
@@ -14,11 +13,10 @@ import Tandoori.Ty.ShowTy
     
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import Data.Maybe
     
 data Ctxt = Ctxt { polyvars :: Map.Map VarName (MonoEnv, TanType),
                    cons :: Map.Map ConName TanType,
-                   locals :: Set.Set VarName,
-                   scopelocals :: Set.Set VarName,
                    userdecls :: Map.Map VarName (Located TanType) }
              
 printCtxt :: Ctxt -> IO ()             
@@ -40,8 +38,6 @@ printCtxt c = do print $ tabTy (rowsDecl ++ rowsInfer)
 mkCtxt :: [(ConName, TanType)] -> Ctxt
 mkCtxt cons = Ctxt { polyvars = Map.empty,
                      cons = conmap,
-                     locals = Set.empty,
-                     scopelocals = Set.empty,
                      userdecls = Map.empty }
     where conmap = Map.fromList cons
                    
@@ -68,19 +64,4 @@ getUserDecl c = flip Map.lookup (userdecls c)
                                                             
 removePolyVars :: Ctxt -> [VarName] -> Ctxt
 removePolyVars c names = c{polyvars = foldl removePolyVar (polyvars c) names}
-    where removePolyVar = flip Map.delete
-                                                   
-isLocal :: Ctxt -> VarName -> Bool
-isLocal c@Ctxt{locals = locals} name = (Set.member name locals) || (isScopelocal c name)
-
-isScopelocal :: Ctxt -> VarName -> Bool                                                                   
-isScopelocal Ctxt{scopelocals = scopelocals} name = Set.member name scopelocals
-                
-newScope :: Ctxt -> Ctxt
-newScope c = c {locals = (locals c) `Set.union` (scopelocals c), scopelocals = Set.empty }
-                                        
-declareLocals :: Ctxt -> [VarName] -> Ctxt
-declareLocals c names = c{locals = (locals c) `Set.union` (Set.fromList names)}
-                                                 
-restrictScope :: Ctxt -> MonoEnv -> MonoEnv
-restrictScope c = filterMonoVars (\ name ty -> isScopelocal c name)
+    where removePolyVar = flip Map.delete                                                   
