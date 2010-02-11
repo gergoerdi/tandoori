@@ -140,14 +140,15 @@ inferBinds c lbinds = do (ms, ts) <- maptupM (inferBind c') binds
                                          Nothing              -> do ty' <- canonizeTy c ty
                                                                     return $ addPolyVar c name (m, ty')
                                          Just (L loc tyDecl)  -> doLoc loc $
-                                                                 case fitDecl tyDecl ty of
-                                                                   Left errs         -> do addError $ CantFitDecl tyDecl ty errs
-                                                                                           return $ c
-                                                                   Right (s, preds)  -> if ensuresPredicates preds tyDecl'
-                                                                                        then return c
-                                                                                        else do addError $ CantFitDecl tyDecl ty []
-                                                                                                return $ c
-                                                                       where tyDecl' = substTy s tyDecl
+                                                                 do ty' <- canonizeTy c ty
+                                                                    case fitDecl tyDecl ty' of
+                                                                      Left errs         -> do addError $ CantFitDecl tyDecl ty' errs
+                                                                                              return $ c
+                                                                      Right (s, preds)  -> if ensuresPredicates preds tyDecl'
+                                                                                           then return c
+                                                                                           else do addError $ CantFitDecl tyDecl ty' []
+                                                                                                   return $ c
+                                                                          where tyDecl' = substTy s tyDecl
                                                                                                
 inferBind :: Ctxt -> (HsBind Name) -> Stateful (MonoEnv, TanType)
 inferBind c FunBind{fun_matches = MatchGroup lmatches _} = do (ms, ts) <- maptupM inferLMatch lmatches
