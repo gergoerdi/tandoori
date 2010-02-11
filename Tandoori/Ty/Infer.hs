@@ -20,20 +20,30 @@ import Tandoori.GHC.Internals
 import Bag (bagToList)
     
 tyCon :: Ctxt -> ConName -> Stateful TanType
-tyCon c name | name == dataConName nilDataCon  = do alpha <- mkTv
-                                                    return $ tyList alpha
+tyCon c name  | name == dataConName nilDataCon     = do alpha <- mkTv
+                                                        return $ tyList alpha
                                                           
-tyCon c name | name == dataConName consDataCon = do alpha <- mkTv
-                                                    return $ tyCurryFun [alpha, tyList alpha, tyList alpha]
-                                                          
-tyCon c name                                   = case getCon c name of
-                                                   Nothing -> do addError (UndefinedCon name)
-                                                                 mkTv
-                                                   Just ty -> instantiateTy (const True) ty
+tyCon c name  | name == dataConName consDataCon    = do alpha <- mkTv
+                                                        return $ tyCurryFun [alpha, tyList alpha, tyList alpha]
+
+-- -- TODO: Clean up builtin constructors mess
+-- tyCon c name  | name == dataConName trueDataCon ||
+--                 name == dataConName falseDataCon   = return tyBool             
+tyCon c name                                       = case getCon c name of
+                                                       Nothing -> do addError (UndefinedCon name)
+                                                                     mkTv
+                                                       Just ty -> instantiateTy (const True) ty
                              
 maptupM :: (Monad m) => (a -> m (b, c)) -> [a] -> m ([b], [c])
 maptupM action items = do results <- mapM action items
                           return (map fst results, map snd results)
+                                 
+maptup3M :: (Monad m) => (a -> m (b, c, d)) -> [a] -> m ([b], [c], [d])
+maptup3M action items = do results <- mapM action items
+                           return (map fst3 results, map snd3 results, map trd3 results)
+    where fst3 (x, y, z) = x
+          snd3 (x, y, z) = y
+          trd3 (x, y, z) = z
 
 doLoc :: SrcSpan -> Stateful a -> Stateful a
 doLoc srcloc m | isGoodSrcSpan srcloc  = withLoc srcloc $ m
@@ -128,37 +138,45 @@ inferValBinds c (ValBindsOut recbinds lsigs) = foldM inferBinds c' (map snd recb
     where c' = addUserDecls c lsigs
                                                
 inferBinds :: Ctxt -> LHsBinds Name -> Stateful Ctxt
-inferBinds c lbinds = do (ms, ts) <- maptupM (inferBind c') binds
-                         foldM definePoly c $ zip3 boundnames ms ts
+inferBinds c lbinds = do let binds = map unLoc $ bagToList lbinds
+                         (nss, ms) <- maptupM (inferBind c) binds
+                         let ns = Set.unions nss
+                         (m, _) <- unify ms []
+                         foldM (definePoly m) c (Set.toList ns)
                                
-    where binds = map unLoc $ bagToList lbinds
-          c' = declareLocals c boundnames
-          boundnames = map boundname binds
-              where boundname FunBind{fun_id = (L _ name)} = name
-                    boundname VarBind{var_id = name}       = name
-          definePoly c (name, m, ty) = case (getUserDecl c name) of
-                                         Nothing              -> do ty' <- canonizeTy c ty
-                                                                    return $ addPolyVar c name (m, ty')
-                                         Just (L loc tyDecl)  -> doLoc loc $
-                                                                 do ty' <- canonizeTy c ty
-                                                                    case fitDecl tyDecl ty' of
-                                                                      Left errs         -> do addError $ CantFitDecl tyDecl ty' errs
-                                                                                              return $ c
-                                                                      Right (s, preds)  -> if ensuresPredicates preds tyDecl'
-                                                                                           then return c
-                                                                                           else do addError $ CantFitDecl tyDecl ty' []
-                                                                                                   return $ c
-                                                                          where tyDecl' = substTy s tyDecl
+    where definePoly m c name = case (getUserDecl c name) of
+                                  Nothing              -> do ty' <- canonizeTy c ty
+                                                             return $ addPolyVar c name (m, ty')
+                                  Just (L loc tyDecl)  -> doLoc loc $
+                                                          do ty' <- canonizeTy c ty
+                                                             case fitDecl tyDecl ty' of
+                                                               Left errs         -> do addError $ CantFitDecl tyDecl ty' errs
+                                                                                       return $ c
+                                                               Right (s, preds)  -> if ensuresPredicates preds tyDecl'
+                                                                                    then return c
+                                                                                    else do addError $ CantFitDecl tyDecl ty' []
+                                                                                            return $ c
+                                                                 where tyDecl' = substTy s tyDecl
+              where Just ty = getMonoVar m name
                                                                                                
-inferBind :: Ctxt -> (HsBind Name) -> Stateful (MonoEnv, TanType)
-inferBind c FunBind{fun_matches = MatchGroup lmatches _} = do (ms, ts) <- maptupM inferLMatch lmatches
-                                                              unify ms ts
+inferBind :: Ctxt -> (HsBind Name) -> Stateful (Set.Set Name, MonoEnv)
+inferBind c PatBind{pat_lhs = lpat, pat_rhs = grhss} = do (ns, m, t) <- inferPat c (unLoc lpat)
+                                                          let patternvars = map fst $ monoVars m
+                                                              c' = declareLocals (newScope c) patternvars
+                                                          (m', t') <- inferGRhss c' grhss
+                                                          (m'', _) <- unify [m, m'] [t, t']
+                                                          return (ns, m'')
+inferBind c VarBind{} = error "VarBind"
+inferBind c FunBind{fun_matches = MatchGroup lmatches _, fun_id = (L _ name)} = do (ms, ts) <- maptupM inferLMatch lmatches
+                                                                                   (m, t) <- unify ms ts
+                                                                                   let m' = addMonoVar m (name, t)
+                                                                                   return (Set.singleton name, m')
     where inferLMatch (L srcloc match) = doLoc srcloc $ inferMatch c match
                
 inferMatch :: Ctxt -> (Match Name) -> Stateful (MonoEnv, TanType)
-inferMatch c (Match lpats _ grhss) = do (ms, ts) <- maptupM (inferPat c . unLoc) lpats
+inferMatch c (Match lpats _ grhss) = do (_, ms, ts) <- maptup3M (inferPat c . unLoc) lpats
                                         let patternvars = map fst $ concat $ map monoVars ms                                                          
-                                            c' = declareLocals (newScope c) $ patternvars
+                                            c' = declareLocals (newScope c) patternvars
                                         (m, t) <- inferGRhss c' grhss
                                         (m', t') <- unify (m:ms) [tyCurryFun (ts ++ [t])]
                                         return $ (m', t')
@@ -166,29 +184,37 @@ inferMatch c (Match lpats _ grhss) = do (ms, ts) <- maptupM (inferPat c . unLoc)
           --                     (m, t) <- f c
           --                     return $ (restrictScope c m, t)
 
-inferPat :: Ctxt -> TanPat -> Stateful (MonoEnv, TanType)
-inferPat c (AsPat (L _ name) (L _ pat))      = do (m, t) <- inferPat c pat
-                                                  return (addMonoVar m (name, t), t)
+justTypeLit :: TanType -> (Set.Set VarName, MonoEnv, TanType)
+justTypeLit t = let (m, t) = justType t in (Set.empty, m, t)
+
+typedAsLit :: VarName -> TanType -> (Set.Set VarName, MonoEnv, TanType)
+name `typedAsLit` ty = let (m, t) = name `typedAs` ty in (Set.singleton name, m, t)
+                                               
+inferPat :: Ctxt -> TanPat -> Stateful (Set.Set VarName, MonoEnv, TanType)
+inferPat c (AsPat (L _ name) (L _ pat))      = do (ns, m, t) <- inferPat c pat
+                                                  let m' = addMonoVar m (name, t)
+                                                  return (ns, m', t)
 inferPat c (ParPat (L _ pat))                = inferPat c pat
 inferPat c (WildPat _)                       = do alpha <- mkTv
-                                                  return $ justType alpha
+                                                  return $ justTypeLit alpha
 inferPat c (VarPat name)                     = do alpha <- mkTv
-                                                  return $ name `typedAs` alpha
-inferPat c (LitPat lit)                      = return $ justType $ typeOfLit lit
+                                                  return $ name `typedAsLit` alpha
+inferPat c (LitPat lit)                      = return $ justTypeLit $ typeOfLit lit
 inferPat c (ConPatIn (L _ conname) details)  = do tycon <- tyCon c conname
-                                                  (ms, ts) <- maptupM (inferPat c) pats
+                                                  (nss, ms, ts) <- maptup3M (inferPat c) pats
+                                                  let ns = Set.unions nss
                                                   alpha <- mkTv
                                                   (m, t) <- unify ms [tycon, tyCurryFun (ts ++ [alpha])]
-                                                  return (m, last (tyUncurryFun t))
+                                                  return (ns, m, last (tyUncurryFun t))
     where pats = case details of
                    PrefixCon lpats            -> map unLoc lpats
                    InfixCon (L _ p) (L _ p')  -> [p, p']
-inferPat c (TuplePat lpats _ _)              = do (ms, ts) <- maptupM (inferPat c . unLoc) lpats
-                                                  return (combineMonos ms, tyTuple ts)
-inferPat c (ListPat lpats _)                 = do (ms, ts) <- maptupM (inferPat c . unLoc) lpats
+inferPat c (TuplePat lpats _ _)              = do (nss, ms, ts) <- maptup3M (inferPat c . unLoc) lpats
+                                                  return (Set.unions nss, combineMonos ms, tyTuple ts)
+inferPat c (ListPat lpats _)                 = do (nss, ms, ts) <- maptup3M (inferPat c . unLoc) lpats
                                                   (m', t') <- unify ms ts
-                                                  return (m', tyList t')
-inferPat c (NPat overlit _ _)                = liftM justType $ typeOfOverLit overlit
+                                                  return (Set.unions nss, m', tyList t')
+inferPat c (NPat overlit _ _)                = liftM justTypeLit $ typeOfOverLit overlit
 
                           
 unify :: [MonoEnv] -> [TanType] -> Stateful (MonoEnv, TanType)

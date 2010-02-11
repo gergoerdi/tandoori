@@ -7,3 +7,5 @@ constone x = 1
 lamid = \ x -> x
 
 f $ x = f x 
+
+f . g = \ x -> f (g x)

@@ -25,15 +25,15 @@ isTyCon :: TanType -> Bool
 isTyCon (HsTyVar name) = (isTyConName name) || (elem name builtinTyNames)
 isTyCon _              = False
                              
-tyBool      = HsTyVar boolTyConName
-tyInt       = HsTyVar intTyConName
-tyChar      = HsTyVar charTyConName
-tyString    = tyList tyChar
-tyList ty   = HsListTy $ noLoc ty
-tyTuple tys = HsTupleTy Boxed $ map noLoc tys
+tyBool       = HsTyVar boolTyConName
+tyInt        = HsTyVar intTyConName
+tyChar       = HsTyVar charTyConName
+tyString     = tyList tyChar
+tyList ty    = HsListTy $ noLoc ty
+tyTuple tys  = HsTupleTy Boxed $ map noLoc tys
 
 --- Builtin data constructors
-builtinDataCons = [nilDataCon, consDataCon]
+builtinDataCons = [nilDataCon, consDataCon, trueDataCon, falseDataCon]
 builtinDataConNames = map dataConName builtinDataCons
 
 --- Builtin typeclasses
