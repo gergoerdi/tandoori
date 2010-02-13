@@ -55,8 +55,7 @@ addPolyVar c name (m, ty) = c{polyvars = Map.insert name (m, ty) (polyvars c)}
 
 addUserDecls :: Ctxt -> [LSig Name] -> Ctxt
 addUserDecls c sigs = foldl addDecl c sigs
-    where --addDecl c (L srcloc (TypeSig (L _ name) (L _ ty))) = error $ show ty
-          addDecl c (L srcloc (TypeSig (L _ name) (L _ ty))) = c {userdecls = Map.insert name (L srcloc ty) (userdecls c)}         
+    where addDecl c (L srcloc (TypeSig (L _ name) (L _ ty))) = c {userdecls = Map.insert name (L srcloc ty) (userdecls c)}         
           addDecl c _                                        = c
 
 getUserDecl :: Ctxt -> VarName -> Maybe (Located TanType)

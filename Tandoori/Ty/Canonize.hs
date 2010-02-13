@@ -13,13 +13,20 @@ data CanonizationRes = CanonizationRes [HsPred Name]
 isTrivialRes :: CanonizationRes -> Bool
 isTrivialRes (CanonizationRes preds) = null preds
 
-forallFromRes :: Ctxt -> CanonizationRes -> TanType -> TanType
-forallFromRes c (CanonizationRes preds) ty = HsForAllTy Implicit noBinder lctxt lty
-    where lctxt = genLoc (map genLoc preds')
-          preds' = filter occursInTy $ flattenPreds preds
-          lty = genLoc ty
-          occursInTy (HsClassP cls [lty']) = any (flip occurs ty) $ Set.toList $ tyVarsOf $ unLoc lty'
+forallFromRes :: Ctxt -> CanonizationRes -> TanType -> Stateful TanType
+forallFromRes c (CanonizationRes preds) ty = do preds' <- simplifyPreds $ flattenPreds preds
+                                                let lctxt = genLoc (map genLoc preds')
+                                                return $ HsForAllTy Implicit noBinder lctxt (genLoc ty)
+    where simplifyPreds preds = return preds -- return $ filter occursInTy preds
+          occursInTy (HsClassP cls [lty]) = any (flip occurs ty) $ Set.toList $ tyVarsOf $ unLoc lty
 
+-- simplifyPred :: Ctxt -> [HsPred Name] -> HsPred Name -> ([HsPred Name], [HsPred Name])
+-- simplifyPred c ps p                      | elem p ps  = ([], [])
+-- simplifyPred c ps p@(HsClassP cls [lty])              = case unLoc lty of
+--                                                           HsTyVar tv -> p
+                                             
+                                        
+                                            
 instance Eq HsBang where
     HsNoBang  ==  HsNoBang  = True
     HsStrict  ==  HsStrict  = True
@@ -70,8 +77,8 @@ combineRes ((CanonizationRes preds):ress) = let CanonizationRes preds' = combine
                                             in CanonizationRes (preds ++ preds')
                      
 canonizeTy :: Ctxt -> TanType -> Stateful TanType
-canonizeTy c ty | isTrivialRes res = return ty'
-                | otherwise = return $ forallFromRes c res ty'
+canonizeTy c ty  | isTrivialRes res  = return ty'
+                 | otherwise         = forallFromRes c res ty'
     where (ty', res) = canonizeTy' ty
                        
 canonizeLTy :: (Located TanType) -> (Located TanType, CanonizationRes)

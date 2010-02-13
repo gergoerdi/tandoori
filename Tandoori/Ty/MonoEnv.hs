@@ -41,3 +41,10 @@ filterMonoVars :: (VarName -> TanType -> Bool) -> MonoEnv -> MonoEnv
 filterMonoVars p (MonoEnv m) = MonoEnv $ Map.filterWithKey p m 
 
 mapMono f (MonoEnv m) = MonoEnv $ Map.map f m                               
+
+mapMonoM f (MonoEnv m) = do let kvs = Map.toList m
+                            kvs' <- mapM f' kvs
+                            return $ MonoEnv $ Map.fromList kvs'
+    where f' (k, v) = do v' <- f v
+                         return $ (k, v')
+
