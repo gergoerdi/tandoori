@@ -1,4 +1,4 @@
-module Tandoori.Ty.Ctxt (Ctxt(..), mkCtxt, getCon, getPolyVar, addPolyVar, addUserDecls, getUserDecl, removePolyVars, printCtxt) where
+module Tandoori.Ty.Ctxt (Ctxt(..), mkCtxt, getCon, getPolyVar, addPolyVar, addUserDecls, getUserDecl, removePolyVars, printCtxt, forceMonoVars) where
 
 import Tandoori
 import Tandoori.Ty
@@ -15,7 +15,8 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Maybe
     
-data Ctxt = Ctxt { polyvars :: Map.Map VarName (MonoEnv, TanType),
+data Ctxt = Ctxt { polyVars :: Map.Map VarName (MonoEnv, TanType),
+                   forcedMonoVars :: Set.Set VarName,
                    cons :: Map.Map ConName TanType,
                    userdecls :: Map.Map VarName (Located TanType) }
              
@@ -32,11 +33,12 @@ printCtxt c = do print $ tabTy (rowsDecl ++ rowsInfer)
           rowTy (sname, sty) = [sname, "::", sty]
           tabTy rows = fromRows $ map rowTy rows
                                 
-          rowsInfer = map (uncurry rowFromInfer) $ Map.toList $ polyvars c
+          rowsInfer = map (uncurry rowFromInfer) $ Map.toList $ polyVars c
           rowsDecl = map (uncurry rowFromDecl) $ map (\ (name, lty) ->  (name, unLoc lty)) $ Map.toList $ userdecls c
 
 mkCtxt :: [(ConName, TanType)] -> Ctxt
-mkCtxt cons = Ctxt { polyvars = Map.empty,
+mkCtxt cons = Ctxt { polyVars = Map.empty,
+                     forcedMonoVars = Set.empty,
                      cons = conmap,
                      userdecls = Map.empty }
     where conmap = Map.fromList cons
@@ -48,11 +50,14 @@ getCon :: Ctxt -> ConName -> Maybe TanType
 getCon c = flip Map.lookup (cons c)
 
 getPolyVar :: Ctxt -> VarName -> Maybe (MonoEnv, TanType)
-getPolyVar c = flip Map.lookup (polyvars c)
+getPolyVar c = flip Map.lookup (polyVars c)
 
 addPolyVar :: Ctxt -> VarName -> (MonoEnv, TanType) -> Ctxt
-addPolyVar c name (m, ty) = c{polyvars = Map.insert name (m, ty) (polyvars c)}
+addPolyVar c name (m, ty) = c{polyVars = Map.insert name (m, ty) (polyVars c)}
 
+forceMonoVars :: Ctxt -> Set.Set VarName -> Ctxt
+forceMonoVars c ns = c{forcedMonoVars = (forcedMonoVars c) `Set.union` ns}
+                            
 addUserDecls :: Ctxt -> [LSig Name] -> Ctxt
 addUserDecls c sigs = foldl addDecl c sigs
     where addDecl c (L srcloc (TypeSig (L _ name) (L _ ty))) = c {userdecls = Map.insert name (L srcloc ty) (userdecls c)}         
@@ -62,5 +67,5 @@ getUserDecl :: Ctxt -> VarName -> Maybe (Located TanType)
 getUserDecl c = flip Map.lookup (userdecls c)                                                    
                                                             
 removePolyVars :: Ctxt -> [VarName] -> Ctxt
-removePolyVars c names = c{polyvars = foldl removePolyVar (polyvars c) names}
+removePolyVars c names = c{polyVars = foldl removePolyVar (polyVars c) names}
     where removePolyVar = flip Map.delete                                                   

@@ -33,7 +33,7 @@ tyCon c name  | name == dataConName consDataCon    = do alpha <- mkTv
 tyCon c name                                       = case getCon c name of
                                                        Nothing -> do addError (UndefinedCon name)
                                                                      mkTv
-                                                       Just ty -> instantiateTy ty
+                                                       Just ty -> instantiateTy (const True) ty
                              
 maptupM :: (Monad m) => (a -> m (b, c)) -> [a] -> m ([b], [c])
 maptupM action items = do results <- mapM action items
@@ -92,20 +92,27 @@ infer' c (HsLam (MatchGroup lmatches _))   = do (ms, ts) <- maptupM (inferMatch 
     where matches = map unLoc lmatches
 
 infer' c (HsVar name) = case getUserDecl c name of
-                          Just lty  -> do ty' <- instantiateTy (unLoc lty)
+                          Just lty  -> do ty' <- instantiateTy (const True) (unLoc lty)
                                           ty'' <- canonizeTy c ty'
                                           return $ justType ty''
                           Nothing   -> case getPolyVar c name of
                                          Nothing -> do alpha <- mkTv
                                                        return $ name `typedAs` alpha
-                                         Just (m, t) -> do t' <- instantiateTy t
+                                         Just (m, t) -> do t' <- instantiateTy isPoly t
                                                            return (m, t')
+                                             where isPoly tv = not (Set.member tv monotyvars)
+                                                   monotyvars = Set.unions $ map tyVarsOfDef $ Set.toList $ forcedMonoVars c
+                                                   tyVarsOfDef n = case getMonoVar m n of
+                                                                     Nothing -> Set.empty
+                                                                     Just ty -> tyVarsOf ty
+
                               
-infer' c (HsLet binds lexpr)               = do (ns, c') <- inferLocalBinds c binds
+infer' c (HsLet binds lexpr)               = do (ns, c', m') <- inferLocalBinds c binds
                                                 (m, t) <- infer c' lexpr
+                                                (m'', t'') <- unify c [m, m'] [t]
                                                 let isOutsideVisible n t = not(n `Set.member` ns)
-                                                    m' = filterMonoVars isOutsideVisible m
-                                                return (m', t)
+                                                    mOut = filterMonoVars isOutsideVisible m''
+                                                return (mOut, t'')
 
 infer' c (OpApp left op fixity right)      = infer' c $ HsApp (genLoc $ HsApp op left) right
 -- TODO:
@@ -125,39 +132,40 @@ inferGRhs c (GRHS _ lexpr) = infer c lexpr
 inferGRhss c (GRHSs lgrhss _) = do (ms, ts) <- maptupM (inferGRhs c . unLoc) lgrhss
                                    unify c ms ts
                              
-inferLocalBinds :: Ctxt -> HsLocalBinds Name -> Stateful (Set.Set Name, Ctxt)
+inferLocalBinds :: Ctxt -> HsLocalBinds Name -> Stateful (Set.Set Name, Ctxt, MonoEnv)
 inferLocalBinds c (HsValBinds vb)     = inferValBinds c vb
 inferLocalBinds c (HsIPBinds ipbinds) = error "inferLocalBinds: HsIPBnds"
-inferLocalBinds c EmptyLocalBinds     = return (Set.empty, c)
+inferLocalBinds c EmptyLocalBinds     = return (Set.empty, c, emptyMono)
 
-inferValBinds :: Ctxt -> HsValBinds Name -> Stateful (Set.Set Name, Ctxt)
-inferValBinds c (ValBindsOut recbinds lsigs) = foldM foldBinds (Set.empty, c') (map snd recbinds)
+inferValBinds :: Ctxt -> HsValBinds Name -> Stateful (Set.Set Name, Ctxt, MonoEnv)
+inferValBinds c (ValBindsOut recbinds lsigs) = foldM foldBinds (Set.empty, c', emptyMono) (map snd recbinds)
     where c' = addUserDecls c lsigs
-          foldBinds (ns, c) binds = do (ns', c') <- inferBinds c binds
-                                       return (ns `Set.union` ns', c')
+          foldBinds (ns, c, m) binds = do (ns', c', m') <- inferBinds c binds
+                                          (m'', _) <- unify c [m, m'] []
+                                          return (ns `Set.union` ns', c', m'')
                                                
-inferBinds :: Ctxt -> LHsBinds Name -> Stateful (Set.Set Name, Ctxt)
+inferBinds :: Ctxt -> LHsBinds Name -> Stateful (Set.Set Name, Ctxt, MonoEnv)
 inferBinds c lbinds = do let binds = map unLoc $ bagToList lbinds
                          (nss, ms) <- maptupM (inferBind c) binds
                          let ns = Set.unions nss
                          (m, _) <- unify c ms []
-                         c' <- foldM (definePoly m) c (Set.toList ns)
-                         return (ns, c')
+                         let m' = filterMonoVars (\ n t -> not(n `Set.member` ns)) m -- Kill?
+                         c' <- foldM (definePoly m) c $ map (\ n -> (n, fromJust $ getMonoVar m n)) (Set.toList ns)
+                         return (ns, c', m)
                                
-    where definePoly m c name = case (getUserDecl c name) of
-                                  Nothing              -> do ty' <- canonizeTy c ty
-                                                             return $ addPolyVar c name (m, ty')
-                                  Just (L loc tyDecl)  -> doLoc loc $
-                                                          do ty' <- canonizeTy c ty
-                                                             case fitDecl tyDecl ty' of
-                                                               Left errs         -> do addError $ CantFitDecl tyDecl ty' errs
-                                                                                       return $ c
-                                                               Right (s, preds)  -> if ensuresPredicates preds tyDecl'
-                                                                                    then return c
-                                                                                    else do addError $ CantFitDecl tyDecl ty' []
-                                                                                            return $ c
-                                                                   where tyDecl' = substTy s tyDecl
-              where Just ty = getMonoVar m name
+    where definePoly m c (name, ty) = case (getUserDecl c name) of
+                                        Nothing              -> do ty' <- canonizeTy c ty
+                                                                   return $ addPolyVar c name (m, ty')
+                                        Just (L loc tyDecl)  -> doLoc loc $
+                                                                do ty' <- canonizeTy c ty
+                                                                   case fitDecl tyDecl ty' of
+                                                                     Left errs         -> do addError $ CantFitDecl tyDecl ty' errs
+                                                                                             return $ c
+                                                                     Right (s, preds)  -> if ensuresPredicates preds tyDecl'
+                                                                                          then return c
+                                                                                          else do addError $ CantFitDecl tyDecl ty' []
+                                                                                                  return $ c
+                                                                         where tyDecl' = substTy s tyDecl
                                                                                                
 inferBind :: Ctxt -> (HsBind Name) -> Stateful (Set.Set Name, MonoEnv)
 inferBind c PatBind{pat_lhs = lpat, pat_rhs = grhss} = do (ns, m, t) <- inferPat c (unLoc lpat)
@@ -174,7 +182,8 @@ inferBind c FunBind{fun_matches = MatchGroup lmatches _, fun_id = (L _ name)} = 
 inferMatch :: Ctxt -> (Match Name) -> Stateful (MonoEnv, TanType)
 inferMatch c (Match lpats _ grhss) = do (nss, ms, ts) <- maptup3M (inferPat c . unLoc) lpats
                                         let ns = Set.unions nss
-                                        (m, t) <- inferGRhss c grhss
+                                            c' = forceMonoVars c ns
+                                        (m, t) <- inferGRhss c' grhss
                                         (m', t') <- unify c (m:ms) [tyCurryFun (ts ++ [t])]
                                         let m'' = filterMonoVars (\ n ty -> not (Set.member n ns)) m'
                                         return $ (m'', t')

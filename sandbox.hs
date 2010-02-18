@@ -36,7 +36,7 @@ typecheckMod mod = runDyn $ do
                      let cons = concat $ map constructorsFromDecl $ map unLoc tydecls
                          c = mkCtxt cons
                      let infer = do
-                              (ns, c') <- inferValBinds c $ hs_valds group
+                              (ns, c', _) <- inferValBinds c $ hs_valds group
                               errors <- getErrors
                               return $ (c', errors)
                      return $ evalState infer mkState
@@ -81,7 +81,7 @@ main = do args <- getArgs
           main' args
 
 test = do p <- main' ["input/cikk.hs"]
-          let tyFoo = snd $ snd $ (Map.toList $ polyvars p)!!0
+          let tyFoo = snd $ snd $ (Map.toList $ polyVars p)!!0
               ltyId = snd $ (Map.toList $ userdecls p)!!1
               tyId = unLoc ltyId
               HsTyVar nGen = tyFoo
