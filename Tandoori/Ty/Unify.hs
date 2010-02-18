@@ -19,7 +19,10 @@ type UnificationRes = (Substitution, [HsPred Name])
 
 showSubst :: Substitution -> String
 showSubst (S s) = show s
-    
+
+instance Show Substitution where
+    show = showSubst
+                  
 emptySubst :: UnificationRes
 emptySubst = (S Map.empty, [])
 
@@ -89,8 +92,8 @@ mgu' leftOnly ((ty@(HsTyVar x),                 HsForAllTy _ _ lctxt (L _ ty')) 
                                                                                                             Right r@(s, preds)  -> Right $ addPred r preds'
                                                                                                                 where preds' = map (unLoc . (substLPred s)) (unLoc lctxt)
 mgu' leftOnly ((ty@(HsTyVar x),                 ty')                             :eqs) | not(isTyCon ty)  = if occurs x ty'
-                                                                                                          --then combineErrors (ty, ty') (mgu' leftOnly eqs)
-                                                                                                          then error $ unwords ["occurs", show x, show ty']
+                                                                                                          then combineErrors (ty, ty') (mgu' leftOnly eqs)
+                                                                                                          -- then error $ unwords ["occurs", show x, show ty']
                                                                                                           else case mgu' leftOnly eqs' of
                                                                                                                  Left errs -> Left errs
                                                                                                                  Right r   -> Right $ addSubst r x ty'
@@ -127,3 +130,9 @@ explodePreds tvs lpreds = map explode tvs
     where explode tv = (tv, filter (occursLPred tv) lpreds)
           occursPred tv (HsClassP cls [lty]) = occurs tv (unLoc lty)
           occursLPred tv = occursPred tv . unLoc                           
+
+testMgu = do tv <- mkTv
+             let ty1 = tyCurryFun [tv, tv]
+                 ty2 = HsForAllTy undefined undefined lctxt (noLoc ty1)
+                 lctxt = noLoc [noLoc $ HsClassP numClassName [noLoc tv]]
+             return $ (ty1, ty2, mgu [(ty1, ty2)])

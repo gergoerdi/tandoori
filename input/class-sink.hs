@@ -1,9 +1,15 @@
-forceNum :: Num a => a -> a
+-- undefined = undefined
+
+forceNum :: Eq a => a -> a
 forceNum x = x
 
-sink :: Num a => a -> Bool
-sink _ = True
-             
-testInherit = forceNum 1
+sink :: Eq a => a -> Bool
+sink _ = undefined
+
+testInherit = forceNum undefined
+
+-- testInheritDecl :: Num a => a
+-- testInheritDecl = forceNum 1
               
 testSink = sink testInherit
+-- testSink' = sink testInheritDecl
