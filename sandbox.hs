@@ -36,7 +36,7 @@ typecheckMod mod = runDyn $ do
                      let cons = concat $ map constructorsFromDecl $ map unLoc tydecls
                          c = mkCtxt cons
                      let infer = do
-                              c' <- inferValBinds c $ hs_valds group
+                              (ns, c') <- inferValBinds c $ hs_valds group
                               errors <- getErrors
                               return $ (c', errors)
                      return $ evalState infer mkState

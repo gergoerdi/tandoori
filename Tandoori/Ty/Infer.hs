@@ -101,8 +101,11 @@ infer' c (HsVar name) = case getUserDecl c name of
                                          Just (m, t) -> do t' <- instantiateTy t
                                                            return (m, t')
                               
-infer' c (HsLet binds lexpr)               = do c' <- inferLocalBinds c binds
-                                                infer c' lexpr
+infer' c (HsLet binds lexpr)               = do (ns, c') <- inferLocalBinds c binds
+                                                (m, t) <- infer c' lexpr
+                                                let isOutsideVisible n t = not(n `Set.member` ns)
+                                                    m' = filterMonoVars isOutsideVisible m
+                                                return (m', t)
 
 infer' c (OpApp left op fixity right)      = infer' c $ HsApp (genLoc $ HsApp op left) right
 -- TODO:
@@ -122,21 +125,24 @@ inferGRhs c (GRHS _ lexpr) = infer c lexpr
 inferGRhss c (GRHSs lgrhss _) = do (ms, ts) <- maptupM (inferGRhs c . unLoc) lgrhss
                                    unify c ms ts
                              
-inferLocalBinds :: Ctxt -> HsLocalBinds Name -> Stateful Ctxt
+inferLocalBinds :: Ctxt -> HsLocalBinds Name -> Stateful (Set.Set Name, Ctxt)
 inferLocalBinds c (HsValBinds vb)     = inferValBinds c vb
 inferLocalBinds c (HsIPBinds ipbinds) = error "inferLocalBinds: HsIPBnds"
-inferLocalBinds c EmptyLocalBinds     = return c
+inferLocalBinds c EmptyLocalBinds     = return (Set.empty, c)
 
-inferValBinds :: Ctxt -> HsValBinds Name -> Stateful Ctxt
-inferValBinds c (ValBindsOut recbinds lsigs) = foldM inferBinds c' (map snd recbinds)
+inferValBinds :: Ctxt -> HsValBinds Name -> Stateful (Set.Set Name, Ctxt)
+inferValBinds c (ValBindsOut recbinds lsigs) = foldM foldBinds (Set.empty, c') (map snd recbinds)
     where c' = addUserDecls c lsigs
+          foldBinds (ns, c) binds = do (ns', c') <- inferBinds c binds
+                                       return (ns `Set.union` ns', c')
                                                
-inferBinds :: Ctxt -> LHsBinds Name -> Stateful Ctxt
+inferBinds :: Ctxt -> LHsBinds Name -> Stateful (Set.Set Name, Ctxt)
 inferBinds c lbinds = do let binds = map unLoc $ bagToList lbinds
                          (nss, ms) <- maptupM (inferBind c) binds
                          let ns = Set.unions nss
                          (m, _) <- unify c ms []
-                         foldM (definePoly m) c (Set.toList ns)
+                         c' <- foldM (definePoly m) c (Set.toList ns)
+                         return (ns, c')
                                
     where definePoly m c name = case (getUserDecl c name) of
                                   Nothing              -> do ty' <- canonizeTy c ty
