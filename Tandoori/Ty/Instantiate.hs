@@ -30,41 +30,40 @@ ensureTvInst tvname = do mtv <- lookupTv tvname
                                          addTv tvname tv
                                          return tv                                                
                                                 
-instantiateLTyM :: (TvName -> Bool) -> (Located TanType) -> StatefulT Instantiator (Located TanType)
-instantiateLTyM isPoly lty = liftM noLoc $ instantiateTyM isPoly (unLoc lty)
+instantiateLTyM :: (Located TanType) -> StatefulT Instantiator (Located TanType)
+instantiateLTyM lty = liftM noLoc $ instantiateTyM (unLoc lty)
                                                 
-instantiateTyM :: (TvName -> Bool) -> TanType -> StatefulT Instantiator TanType
-instantiateTyM _      ty                    | isTyCon ty  = return ty
-instantiateTyM isPoly (HsForAllTy e _ lctxt lty)          = do let lpreds = unLoc lctxt
-                                                               lty' <- instantiateLTyM isPoly lty
-                                                               lpreds' <- mapM instantiateLPredM lpreds
-                                                               let lctxt' = genLoc lpreds'
-                                                               return $ HsForAllTy e noBinder lctxt' lty'
-    where instantiatePredM (HsClassP name ltys) = do ltys' <- mapM (instantiateLTyM isPoly) ltys
+instantiateTyM :: TanType -> StatefulT Instantiator TanType
+instantiateTyM ty                          | isTyCon ty  = return ty
+instantiateTyM (HsForAllTy e _ lctxt lty)                = do let lpreds = unLoc lctxt
+                                                              lty' <- instantiateLTyM lty
+                                                              lpreds' <- mapM instantiateLPredM lpreds
+                                                              let lctxt' = genLoc lpreds'
+                                                              return $ HsForAllTy e noBinder lctxt' lty'
+    where instantiatePredM (HsClassP name ltys) = do ltys' <- mapM instantiateLTyM ltys
                                                      return $ HsClassP name ltys'
           instantiateLPredM lpred = liftM genLoc $ instantiatePredM $ unLoc lpred
 
                                                                    
-instantiateTyM isPoly (HsBangTy bang lty)                 = liftM unLoc $ instantiateLTyM isPoly lty
+instantiateTyM (HsBangTy bang lty)                       = liftM unLoc $ instantiateLTyM lty
 
-instantiateTyM isPoly ty@(HsTyVar name)     | isPoly name = ensureTvInst name
-                                            | otherwise   = return ty
+instantiateTyM ty@(HsTyVar name)                         = ensureTvInst name
                                                                  
-instantiateTyM isPoly (HsAppTy lx ly)                     = do lx' <- instantiateLTyM isPoly lx
-                                                               ly' <- instantiateLTyM isPoly ly
-                                                               return $ HsAppTy lx' ly'
-instantiateTyM isPoly (HsFunTy lx ly)                     = do lx' <- instantiateLTyM isPoly lx
-                                                               ly' <- instantiateLTyM isPoly ly
-                                                               return $ HsFunTy lx' ly'
-instantiateTyM isPoly (HsListTy lty)                      = do lty' <- instantiateLTyM isPoly lty
-                                                               return $ HsListTy lty'
-instantiateTyM isPoly (HsTupleTy box ltys)                = do ltys' <- mapM (instantiateLTyM isPoly) ltys
-                                                               return $ HsTupleTy box ltys'
-instantiateTyM isPoly (HsParTy lty)                       = do lty' <- instantiateLTyM isPoly lty
-                                                               return $ HsParTy lty'
+instantiateTyM (HsAppTy lx ly)                           = do lx' <- instantiateLTyM lx
+                                                              ly' <- instantiateLTyM ly
+                                                              return $ HsAppTy lx' ly'
+instantiateTyM (HsFunTy lx ly)                           = do lx' <- instantiateLTyM lx
+                                                              ly' <- instantiateLTyM ly
+                                                              return $ HsFunTy lx' ly'
+instantiateTyM (HsListTy lty)                            = do lty' <- instantiateLTyM lty
+                                                              return $ HsListTy lty'
+instantiateTyM (HsTupleTy box ltys)                      = do ltys' <- mapM instantiateLTyM ltys
+                                                              return $ HsTupleTy box ltys'
+instantiateTyM (HsParTy lty)                             = do lty' <- instantiateLTyM lty
+                                                              return $ HsParTy lty'
                                                                       
-instantiateTy :: (TvName -> Bool) -> TanType -> Stateful TanType
-instantiateTy isPoly ty = evalStateT (instantiateTyM isPoly ty) newInstantiator
+instantiateTy :: TanType -> Stateful TanType
+instantiateTy ty = evalStateT (instantiateTyM ty) newInstantiator
 
 
 
@@ -72,5 +71,5 @@ instantiateTy isPoly ty = evalStateT (instantiateTyM isPoly ty) newInstantiator
 testInstM = do tv <- mkTv
                tv' <- mkTv
                let ty = tyCurryFun [tyCurryFun [tv, tv', tyInt], tyList tv, tyList tv']
-               ty' <- instantiateTy (const True) ty
+               ty' <- instantiateTy ty
                return (ty, ty')
