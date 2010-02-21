@@ -1,8 +1,9 @@
-module Tandoori.Ty.Instantiate (instantiateTy, instantiateTyM, newInstantiator, testInstM) where
+module Tandoori.Ty.Instantiate (instantiateTy) where
 
 import Tandoori
 import Tandoori.State
 import Tandoori.Ty
+import Tandoori.Ty.MonoEnv
 import Tandoori.Util
 import Tandoori.GHC.Internals
     
@@ -48,8 +49,14 @@ instantiateTyM isPoly (HsForAllTy e _ lctxt lty)                = do let lpreds 
                                                                    
 instantiateTyM isPoly (HsBangTy bang lty)                       = liftM unLoc $ instantiateLTyM isPoly lty
 
-instantiateTyM isPoly ty@(HsTyVar tv)             | isPoly tv   = ensureTvInst tv
-                                                  | otherwise   = return ty
+instantiateTyM isPoly ty@(HsTyVar tv)                           = do l <- lookupTv tv
+                                                                     case l of
+                                                                       Nothing   -> if isPoly tv
+                                                                                    then ensureTvInst tv
+                                                                                    else return ty
+                                                                       Just ty'  -> return ty'
+-- instantiateTyM isPoly ty@(HsTyVar tv)             | isPoly tv   = ensureTvInst tv
+--                                                   | otherwise   = return ty
                                                                  
 instantiateTyM isPoly (HsAppTy lx ly)                           = do lx' <- instantiateLTyM isPoly lx
                                                                      ly' <- instantiateLTyM isPoly ly

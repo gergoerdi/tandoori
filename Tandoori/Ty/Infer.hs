@@ -67,8 +67,8 @@ infer' :: Ctxt -> TanExpr -> Stateful (MonoEnv, TanType)
 infer' c (HsLit lit)                       = return $ justType $ typeOfLit lit
 infer' c (HsOverLit overlit)               = liftM justType $ typeOfOverLit overlit
 infer' c (HsVar name) | isDataConName name = do ty <- tyCon c name
-                                                ty' <- canonizeTy c ty
-                                                return $ justType ty'
+                                                -- ty' <- canonizeTy c ty
+                                                return $ justType ty
                                              
 infer' c (ExplicitList _ lexprs)           = do (ms, ts) <- maptupM (infer c) lexprs
                                                 (m, t) <- unify c ms ts
@@ -76,8 +76,8 @@ infer' c (ExplicitList _ lexprs)           = do (ms, ts) <- maptupM (infer c) le
 infer' c (ExplicitTuple lexprs _)          = do (ms, ts) <- maptupM (infer c) lexprs
                                                 unify c ms [tyTuple ts]
                                                        
-infer' c (HsApp lfun lparam)               = do (m1, ty1) <- infer c lfun
-                                                (m2, ty2) <- infer c lparam
+infer' c (HsApp ltyFun ltyParam)           = do (m1, ty1) <- infer c ltyFun
+                                                (m2, ty2) <- infer c ltyParam
                                                 alpha <- mkTv
                                                 (m, ty) <- unify c [m1, m2] [ty1, HsFunTy (noLoc ty2) (noLoc alpha)]
                                                 ty' <- canonizeTy c ty
@@ -99,7 +99,7 @@ infer' c (HsVar name) = case getUserDecl c name of
                                          Nothing -> do alpha <- mkTv
                                                        return $ name `typedAs` alpha
                                          Just (m, t) -> do t' <- instantiateTy isPoly t
-                                                           return (m, t')
+                                                           return $ trace (show (m, t')) $ (m, t')
                                              where isPoly tv = not (Set.member tv monotyvars)
                                                    monotyvars = Set.unions $ map tyVarsOfDef $ Set.toList $ forcedMonoVars c
                                                    tyVarsOfDef n = case getMonoVar m n of
@@ -119,12 +119,9 @@ infer' c (OpApp left op fixity right)      = infer' c $ HsApp (genLoc $ HsApp op
 infer' c (NegApp expr negfun)              = error "infer': TODO: NegApp"
 infer' c (HsPar lexpr)                     = infer c lexpr
 
--- inferRhs c (HsUnGuardedRhs expr) = infer c expr
--- inferRhs c (GRHS _ lexpr) = do (ms, ts) <- maptupM infer lexprs
---                                unify c ms ts
 --     where inferGuardedRhs (HsGuardedRhs srcloc expr guard) = withLoc srcloc $ do (m, t) <- infer c expr
 --                                                                                  (m', t') <- infer c guard
---                                                                                  (m'', t'') <- unify c [m'] [t', tyBool]
+--                                                                                  (m'', _) <- unify c [m'] [t', tyBool]
 --                                                                                  unify c [m, m''] [t]
 
 inferGRhs c (GRHS _ lexpr) = infer c lexpr
@@ -225,7 +222,7 @@ unify :: Ctxt -> [MonoEnv] -> [TanType] -> Stateful (MonoEnv, TanType)
 unify c ms tys = do eqs <- monoeqs
                     alpha <- mkTv
                     let eqs' = map (\ ty -> (alpha, ty)) tys
-                    case mgu (eqs ++ eqs') of
+                    case mgu eqs eqs' of
                       Left errs -> do addError $ UnificationFailed ms errs
                                       return $ (combineMonos ms, alpha)
                       Right r -> do ms' <- mapM (xformMono r) ms
@@ -239,9 +236,7 @@ unify c ms tys = do eqs <- monoeqs
           distinct = Set.toList . Set.fromList
                      
           xformMono r m = mapMonoM (xformTy r) m
-          xformTy (s, preds) ty = do let ty' = substTy s ty                                                           
-                                         ty'' = HsForAllTy Implicit noBinder lctxt lty'
-                                             where ctxt = map noLoc preds
-                                                   lctxt = noLoc ctxt
-                                                   lty' = noLoc ty'
-                                     canonizeTy c ty''
+          xformTy (s, preds) ty = canonizeTy c ty''
+              where ty' = substTy s ty
+                    ctxt = map noLoc preds
+                    ty'' = HsForAllTy Implicit noBinder (noLoc ctxt) (noLoc ty')

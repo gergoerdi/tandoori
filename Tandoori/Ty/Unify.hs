@@ -65,62 +65,64 @@ substLPred s = noLoc . substPred s . unLoc
 substPred :: Substitution -> HsPred Name -> HsPred Name
 substPred s (HsClassP cls [lty]) = HsClassP cls [substLTy s lty]
 
-type UnsolvableEqs = [(TanType, TanType)]
+type TyEq = (TanType, TanType)
+type TyEqProblem = (Bool, TyEq)
     
-fitDecl :: TanType -> TanType -> Either UnsolvableEqs UnificationRes
-fitDecl tyDecl ty = mgu' True [(ty, tyDecl)]
+fitDecl :: TanType -> TanType -> Either [TyEq] UnificationRes
+fitDecl tyDecl ty = mgu' True [(True, (ty, tyDecl))] -- TODO: Call ensurePredicates here
                                                   
-mgu :: [(TanType, TanType)] -> Either UnsolvableEqs UnificationRes
-mgu = mgu' False
+mgu :: [TyEq] -> [TyEq] -> Either [TyEq] UnificationRes
+mgu eqs eqsCollect = mgu' False $ (map (\ eq -> (False, eq)) eqs) ++ (map (\ eq -> (True, eq)) eqsCollect)
 
 justSubst :: Substitution -> UnificationRes
 justSubst s = (s, [])
 
-addPred :: UnificationRes -> [HsPred Name] -> UnificationRes 
-addPred (s, preds) preds' = (s, preds ++ preds') 
-              
-mgu' :: Bool -> [(TanType, TanType)] -> Either UnsolvableEqs UnificationRes
-mgu' leftOnly []                                                                                        = Right $ emptySubst
-mgu' leftOnly ((HsParTy (L _ ty),               ty')                             :eqs)                  = mgu' leftOnly $ (ty, ty'):eqs
-mgu' leftOnly ((ty,                             HsParTy (L _ ty'))               :eqs)                  = mgu' leftOnly $ (ty, ty'):eqs
+addPred :: Bool -> UnificationRes -> [HsPred Name] -> UnificationRes 
+addPred True   (s, preds)  preds'  = (s, preds ++ preds') 
+addPred False  r           _       = r
+
+
+mgu' :: Bool -> [TyEqProblem] -> Either [TyEq] UnificationRes
+mgu' leftOnly []                                                                                             = Right $ emptySubst
+mgu' leftOnly ((c, (HsParTy (L _ ty),               ty'))                             :eqs)                  = mgu' leftOnly $ (c, (ty, ty')):eqs
+mgu' leftOnly ((c, (ty,                             HsParTy (L _ ty')))               :eqs)                  = mgu' leftOnly $ (c, (ty, ty')):eqs
                                                                                     
-mgu' leftOnly ((HsTyVar x,                      HsTyVar y)                       :eqs) | x == y         = mgu' leftOnly eqs
-mgu' leftOnly ((ty,                             ty')                             :eqs) | isTyCon ty &&
-                                                                                         isTyCon ty'    = combineErrors (ty, ty') (mgu' leftOnly eqs)
-mgu' leftOnly ((ty@(HsTyVar x),                 HsForAllTy _ _ lctxt (L _ ty'))  :eqs)                  = case mgu' leftOnly ((ty, ty'):eqs) of
-                                                                                                            Left errs           -> Left errs
-                                                                                                            Right r@(s, preds)  -> Right $ addPred r preds'
-                                                                                                                where preds' = map (unLoc . (substLPred s)) (unLoc lctxt)
-mgu' leftOnly ((ty@(HsTyVar x),                 ty')                             :eqs) | not(isTyCon ty)  = if occurs x ty'
-                                                                                                          then combineErrors (ty, ty') (mgu' leftOnly eqs)
-                                                                                                          -- then error $ unwords ["occurs", show x, show ty']
-                                                                                                          else case mgu' leftOnly eqs' of
-                                                                                                                 Left errs -> Left errs
-                                                                                                                 Right r   -> Right $ addSubst r x ty'
-    where eqs' = map (\ (t, t') -> (subst t, subst t')) eqs
+mgu' leftOnly ((c, (HsTyVar x,                      HsTyVar y))                       :eqs) | x == y         = mgu' leftOnly eqs
+mgu' leftOnly ((c, (ty,                             ty'))                             :eqs) | isTyCon ty &&
+                                                                                              isTyCon ty'    = combineErrors (ty, ty') (mgu' leftOnly eqs)
+mgu' leftOnly ((c, (ty@(HsTyVar x),                 HsForAllTy _ _ lctxt (L _ ty')))  :eqs)                  = case mgu' leftOnly ((c, (ty, ty')):eqs) of
+                                                                                                                 Left errs           -> Left errs
+                                                                                                                 Right r@(s, preds)  -> Right $ addPred c r preds'
+                                                                                                                     where preds' = map (unLoc . (substLPred s)) (unLoc lctxt)
+mgu' leftOnly ((c, (ty@(HsTyVar x),                 ty'))                             :eqs) | not(isTyCon ty)  = if occurs x ty'
+                                                                                                               then combineErrors (ty, ty') (mgu' leftOnly eqs)
+                                                                                                               else case mgu' leftOnly eqs' of
+                                                                                                                      Left errs -> Left errs
+                                                                                                                      Right r   -> Right $ addSubst r x ty'
+    where eqs' = map (\ (c, (t, t')) -> (c, (subst t, subst t'))) eqs
           subst = substTy (fst $ addSubst emptySubst x ty')
-mgu' leftOnly ((ty,                             ty'@(HsTyVar _))                 :eqs) | not leftOnly     = mgu' leftOnly $ (ty', ty):eqs
-mgu' leftOnly ((HsFunTy (L _ ty) (L _ u),       HsFunTy (L _ ty') (L _ u'))      :eqs)                  = mgu' leftOnly $ (ty, ty'):(u, u'):eqs
-mgu' leftOnly ((HsAppTy (L _ ty) (L _ u),       HsAppTy (L _ ty') (L _ u'))      :eqs)                  = mgu' leftOnly $ (ty, ty'):(u, u'):eqs
-mgu' leftOnly ((HsTupleTy _ ltys,               HsTupleTy _ ltys')               :eqs)                  = mgu' leftOnly $ (zip (map unLoc ltys) (map unLoc ltys')) ++ eqs
-mgu' leftOnly ((HsListTy (L _ ty),              HsListTy (L _ ty'))              :eqs)                  = mgu' leftOnly $ (ty, ty'):eqs
+mgu' leftOnly ((c, (ty,                             ty'@(HsTyVar _)))                 :eqs) | not leftOnly     = mgu' leftOnly $ (c, (ty', ty)):eqs
+mgu' leftOnly ((c, (HsFunTy (L _ ty) (L _ u),       HsFunTy (L _ ty') (L _ u')))      :eqs)                  = mgu' leftOnly $ (c, (ty, ty')):(c, (u, u')):eqs
+mgu' leftOnly ((c, (HsAppTy (L _ ty) (L _ u),       HsAppTy (L _ ty') (L _ u')))      :eqs)                  = mgu' leftOnly $ (c, (ty, ty')):(c, (u, u')):eqs
+mgu' leftOnly ((c, (HsTupleTy _ ltys,               HsTupleTy _ ltys'))               :eqs)                  = mgu' leftOnly $ (map (\ eq -> (c, eq)) eqs') ++ eqs
+    where eqs' = zip (map unLoc ltys) (map unLoc ltys')
+mgu' leftOnly ((c, (HsListTy (L _ ty),              HsListTy (L _ ty')))              :eqs)                  = mgu' leftOnly $ (c, (ty, ty')):eqs
 
-mgu' leftOnly ((HsBangTy _ (L _ ty),            ty')                             :eqs)                  = mgu' leftOnly $ (ty, ty'):eqs
-mgu' leftOnly ((ty,                             HsBangTy _ (L _ ty'))            :eqs)                  = mgu' leftOnly $ (ty, ty'):eqs
+mgu' leftOnly ((c, (HsBangTy _ (L _ ty),            ty'))                             :eqs)                  = mgu' leftOnly $ (c, (ty, ty')):eqs
+mgu' leftOnly ((c, (ty,                             HsBangTy _ (L _ ty')))            :eqs)                  = mgu' leftOnly $ (c, (ty, ty')):eqs
 
--- mgu' leftOnly ts                                                                                        = error $ show ts
-mgu' leftOnly ((HsForAllTy _ _ lctxt (L _ ty),  ty')                             :eqs)                  = case mgu' leftOnly $ (ty, ty'):eqs of
-                                                                                                           Left errs -> Left errs
-                                                                                                           Right (s, preds) -> Right (s, preds' ++ preds)
-                                                                                                               where preds' = map (unLoc . (substLPred s)) (unLoc lctxt)
-mgu' leftOnly ((ty,                             HsForAllTy _ _ lctxt (L _ ty'))  :eqs)                  = case mgu' leftOnly $ (ty, ty'):eqs of
-                                                                                                           Left errs           -> Left errs
-                                                                                                           Right r@(s, preds)  -> Right $ addPred r preds'
-                                                                                                               where preds' = map (unLoc . (substLPred s)) (unLoc lctxt)
-mgu' leftOnly ((ty,                             ty')                             :eqs)                  = combineErrors (ty, ty') (mgu' leftOnly eqs)
+mgu' leftOnly ((c, (HsForAllTy _ _ lctxt (L _ ty),  ty'))                             :eqs)                  = case mgu' leftOnly $ (c, (ty, ty')):eqs of
+                                                                                                                 Left errs -> Left errs
+                                                                                                                 Right r@(s, preds) -> Right $ addPred c r preds'
+                                                                                                                     where preds' = map (unLoc . (substLPred s)) (unLoc lctxt)
+mgu' leftOnly ((c, (ty,                             HsForAllTy _ _ lctxt (L _ ty')))  :eqs)                  = case mgu' leftOnly $ (c, (ty, ty')):eqs of
+                                                                                                                 Left errs           -> Left errs
+                                                                                                                 Right r@(s, preds)  -> Right $ addPred c r preds'
+                                                                                                                     where preds' = map (unLoc . (substLPred s)) (unLoc lctxt)
+mgu' leftOnly ((c, (ty,                             ty'))                             :eqs)                  = combineErrors (ty, ty') (mgu' leftOnly eqs)
 
                                                                                               
-combineErrors :: (TanType, TanType) -> Either UnsolvableEqs UnificationRes -> Either UnsolvableEqs UnificationRes
+combineErrors :: (TanType, TanType) -> Either [TyEq] UnificationRes -> Either [TyEq] UnificationRes
 combineErrors typair (Left errs) = Left $ typair:errs
 combineErrors typair (Right _)   = Left $ [typair]
 

@@ -1,5 +1,5 @@
 module Tandoori.Ty.MonoEnv where
---module Tandoori.Ty.MonoEnv(MonoEnv, justType, typedAs, monoVars, combineMonos, removeMonoVars, filterMonoVars, mapMono) where
+--module Tandoori.Ty.MonoEnv(MonoEnv, justType, typedAs, monoVars, combineMonos, removeMonoVars, filterMonoVars, mapMono, mapMonoM) where
 
 import Tandoori
 import Control.Monad.State
@@ -40,8 +40,10 @@ removeMonoVars (MonoEnv m) names = MonoEnv $ foldl removeMonoVar m names
 filterMonoVars :: (VarName -> TanType -> Bool) -> MonoEnv -> MonoEnv
 filterMonoVars p (MonoEnv m) = MonoEnv $ Map.filterWithKey p m 
 
+mapMono :: (TanType -> TanType) -> MonoEnv -> MonoEnv
 mapMono f (MonoEnv m) = MonoEnv $ Map.map f m                               
 
+mapMonoM :: Monad m => (TanType -> m TanType) -> MonoEnv -> m MonoEnv
 mapMonoM f (MonoEnv m) = do let kvs = Map.toList m
                             kvs' <- mapM f' kvs
                             return $ MonoEnv $ Map.fromList kvs'
