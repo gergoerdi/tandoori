@@ -6,7 +6,7 @@ import Tandoori.Util
 import Tandoori.State    
 import Tandoori.Errors
 import Tandoori.Ty
-import Tandoori.Ty.Canonize
+import Tandoori.Ty.Predicates
 import Tandoori.Ty.MonoEnv
 import Tandoori.Ty.Ctxt
 import Tandoori.Ty.Unify
@@ -62,12 +62,12 @@ typeOfOverLit (OverLit { ol_val = val }) = do alpha@(HsTyVar alpha_name) <- mkTv
                                                   preds = [genLoc $ HsClassP tc [genLoc alpha]]
                                                   lpreds = genLoc preds
                                               return $ HsForAllTy Implicit bndrs lpreds (genLoc alpha)
+                                              return $ tyInt
                                                              
 infer' :: Ctxt -> TanExpr -> Stateful (MonoEnv, TanType)
 infer' c (HsLit lit)                       = return $ justType $ typeOfLit lit
 infer' c (HsOverLit overlit)               = liftM justType $ typeOfOverLit overlit
 infer' c (HsVar name) | isDataConName name = do ty <- tyCon c name
-                                                -- ty' <- canonizeTy c ty
                                                 return $ justType ty
                                              
 infer' c (ExplicitList _ lexprs)           = do (ms, ts) <- maptupM (infer c) lexprs
@@ -80,7 +80,7 @@ infer' c (HsApp ltyFun ltyParam)           = do (m1, ty1) <- infer c ltyFun
                                                 (m2, ty2) <- infer c ltyParam
                                                 alpha <- mkTv
                                                 (m, ty) <- unify c [m1, m2] [ty1, HsFunTy (noLoc ty2) (noLoc alpha)]
-                                                ty' <- canonizeTy c ty
+                                                ty' <- resolvePreds c ty
                                                 case ty' of
                                                   HsFunTy (L _ ty3) (L _ ty4)                    -> return (m, ty4)
                                                   HsForAllTy e _ lctxt (L _ (HsFunTy lty3 lty4)) -> return (m, (HsForAllTy e noBinder lctxt lty4))
@@ -93,7 +93,7 @@ infer' c (HsLam (MatchGroup lmatches _))   = do (ms, ts) <- maptupM (inferMatch 
 
 infer' c (HsVar name) = case getUserDecl c name of
                           Just lty  -> do ty' <- instantiateTy (const True) (unLoc lty)
-                                          ty'' <- canonizeTy c ty'
+                                          ty'' <- resolvePreds c ty'
                                           return $ justType ty''
                           Nothing   -> case getPolyVar c name of
                                          Nothing -> do alpha <- mkTv
@@ -151,10 +151,10 @@ inferBinds c lbinds = do let binds = map unLoc $ bagToList lbinds
                          return (ns, c', m)
                                
     where definePoly m c (name, ty) = case (getUserDecl c name) of
-                                        Nothing              -> do ty' <- canonizeTy c ty
+                                        Nothing              -> do ty' <- resolvePreds c ty
                                                                    return $ addPolyVar c name (m, ty')
                                         Just (L loc tyDecl)  -> doLoc loc $
-                                                                do ty' <- canonizeTy c ty
+                                                                do ty' <- resolvePreds c ty
                                                                    case fitDecl tyDecl ty' of
                                                                      Left errs         -> do addError $ CantFitDecl tyDecl ty' errs
                                                                                              return $ c
@@ -236,7 +236,7 @@ unify c ms tys = do eqs <- monoeqs
           distinct = Set.toList . Set.fromList
                      
           xformMono r m = mapMonoM (xformTy r) m
-          xformTy (s, preds) ty = canonizeTy c ty''
+          xformTy (s, preds) ty = resolvePreds c ty''
               where ty' = substTy s ty
                     ctxt = map noLoc preds
                     ty'' = HsForAllTy Implicit noBinder (noLoc ctxt) (noLoc ty')

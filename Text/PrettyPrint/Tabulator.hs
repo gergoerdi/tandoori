@@ -14,9 +14,10 @@ t <$|$> t' = Beside t 1 t'
             
 column cs = Column cs
 
+maximum' [] = 0
+maximum' ns = maximum ns
+              
 width (Column cs)   = maximum' $ map length cs
-    where maximum' [] = 0
-          maximum' ns = maximum ns
 width (Beside t sep t') = (width t) + sep + (width t')
 
 pad :: Int -> String -> String                          
@@ -45,7 +46,7 @@ fromPairs3 pairs = (column $ map fst3 pairs) <$|$> (column $ map snd3 pairs) <$|
 
 fromRows rows = foldl (<$|$>) (column []) columns
     where columns = map (\ col -> column $ map (nth col) rows) [0..col_num]
-          col_num = maximum $ map length rows
+          col_num = maximum' $ map length rows
           nth _     []     = ""
           nth 0     (s:ss) = s
           nth (n+1) (s:ss) = nth n ss
