@@ -99,7 +99,7 @@ infer' c (HsVar name) = case getUserDecl c name of
                                          Nothing -> do alpha <- mkTv
                                                        return $ name `typedAs` alpha
                                          Just (m, t) -> do t' <- instantiateTy isPoly t
-                                                           return $ trace (show (m, t')) $ (m, t')
+                                                           return (m, t')
                                              where isPoly tv = not (Set.member tv monotyvars)
                                                    monotyvars = Set.unions $ map tyVarsOfDef $ Set.toList $ forcedMonoVars c
                                                    tyVarsOfDef n = case getMonoVar m n of

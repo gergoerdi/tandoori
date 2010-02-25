@@ -16,7 +16,9 @@ import System.Environment
 import Tandoori.Ty.Infer
 import Tandoori.Ty.Ctxt
 import Tandoori.Ty
+    
 import Tandoori.Ty.DataType
+import Tandoori.Ty.ClassDecl
 
 import qualified Data.Map as Map
     
@@ -32,10 +34,14 @@ src_filename = "input/declare.hs"
 
 typecheckMod mod = runDyn $ do
                      env <- getSession
-                     (tydecls, group) <- liftIO $ runScope env mod
-                     let cons = concat $ map constructorsFromDecl $ map unLoc tydecls
-                         c = mkCtxt cons
+                     (ltydecls, group) <- liftIO $ runScope env mod
+                     let tydecls = map unLoc ltydecls
+                         cons = concatMap constructorsFromDecl tydecls
+                         classdecls = map funsFromClassDecl $ sortClassDecls tydecls
+                         c = addUserDecls (mkCtxt cons) (concatMap fst classdecls)
+                             
                      let infer = do
+                              mapM (inferBinds c) $ map snd classdecls
                               (ns, c', _) <- inferValBinds c $ hs_valds group
                               errors <- getErrors
                               return $ (c', errors)
