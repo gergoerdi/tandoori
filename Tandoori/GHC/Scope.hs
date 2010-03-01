@@ -5,7 +5,8 @@ import FastString
 import RdrName
 import RdrHsSyn
 import TcRnTypes
-import RnSource   
+import RnSource
+import RnNames
 import Outputable
 import GHC
 import HscTypes
@@ -82,14 +83,20 @@ mkGbl env mod = do dfuns_var    <- newIORef emptyNameSet ;
                                 tcg_hpc      = False
                               }
 
-runScope env mod = do let modinfo = mkModule mainPackageId $ mkModuleName "foo"
-                          group = fst $ findSplice decls
-                      gbl <- mkGbl env modinfo
-                      lcl <- mkLcl
-                      (gbl', group') <- initTcRnIf 'a' env gbl lcl $ rnSrcDecls group
-                      tydecls' <- initTcRnIf 'a' env gbl' lcl $ rnTyClDecls ltycldecls
-                      return (tydecls', group')
-    where decls = hsmodDecls $ unLoc mod
+runScope env lmod = do let modinfo = mkModule mainPackageId $ mkModuleName "foo"
+                           group = fst $ findSplice decls
+                       gbl <- mkGbl env modinfo
+                       lcl <- mkLcl
+
+                       -- (rn_imports, rdr_env, _, _) <- initTcRnIf 'a' env gbl lcl $ checkNoErrs $ rnImports imports
+                                                                 
+                       (gbl', group') <- initTcRnIf 'a' env gbl lcl $ rnSrcDecls group
+                       tydecls' <- initTcRnIf 'a' env gbl' lcl $ rnTyClDecls ltycldecls
+                       return (undefined, tydecls', group')
+                              
+    where mod = unLoc lmod
+          imports = hsmodImports mod
+          decls = hsmodDecls mod
           tycldecls = filter (isTyDecl . unLoc) decls
           ltycldecls = map (\ (L loc (TyClD decl)) -> L loc decl) tycldecls
           isTyDecl (TyClD _) = True

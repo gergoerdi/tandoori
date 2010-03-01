@@ -34,7 +34,7 @@ src_filename = "input/declare.hs"
 
 typecheckMod mod = runDyn $ do
                      env <- getSession
-                     (ltydecls, group) <- liftIO $ runScope env mod
+                     (limports, ltydecls, group) <- liftIO $ runScope env mod
                      let tydecls = map unLoc ltydecls
                          cons = concatMap constructorsFromDecl tydecls
                          cg = mkClassGraph tydecls
