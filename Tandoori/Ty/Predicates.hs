@@ -7,7 +7,10 @@ import Tandoori.Ty
 import Tandoori.Ty.Ctxt
 import Tandoori.State
 import Tandoori.GHC.Internals
+import Tandoori.Ty.ClassDecl
 import qualified Data.Set as Set
+
+import Tandoori.Kludge.Show
     
 type CanonizationRes = [HsPred Name]
 
@@ -49,22 +52,42 @@ distinct []                   = []
 distinct (x:xs)  | elem x xs  = distinct xs
                  | otherwise  = x:distinct xs
 
-ensuresPredicates []     _                         = True
-ensuresPredicates preds  (HsForAllTy _ _ lctxt _)  = preds `isSubsetOf` preds'
-    where preds' = flattenPreds $ map unLoc $ unLoc lctxt
-          xs `isSubsetOf` ys = all (flip elem ys) xs
-ensuresPredicates _      _                         = False                                
 
-flattenPreds :: [HsPred Name] -> [HsPred Name]
-flattenPreds preds = distinct $ concat $ map flattenPred preds
-    
-flattenPred :: HsPred Name -> [HsPred Name]
-flattenPred (HsClassP cls [lty]) = (HsClassP cls [lty']):preds
+                                
+ensuresPredicates :: Ctxt
+                  -> [HsPred Name]  -- Predicates which must be ensured by...                     
+                  -> TanType        -- ... this type declaration
+                  -> Bool
+ensuresPredicates c []     _                         = True
+ensuresPredicates c preds  (HsForAllTy _ _ lctxt _)  = preds `isSubsetOf` preds'
+    where preds' = flattenPredsIn c $ map unLoc $ unLoc lctxt
+          xs `isSubsetOf` ys = all (flip elem ys) xs
+ensuresPredicates c _      _                         = False                                
+
+flattenPredsIn :: Ctxt -> [HsPred Name] -> [HsPred Name]
+flattenPredsIn c preds = distinct $ concat $ map (flattenPredIn c) preds
+                        
+flattenPredIn :: Ctxt -> HsPred Name -> [HsPred Name]
+flattenPredIn c (HsClassP cls [lty]) = (HsClassP cls [lty']):preds'
     where (lty', preds) = collectPredsLTy lty
-                                           
+          preds' = flattenPredsIn c (map toPred baseClss ++ preds)
+          baseClss = baseClassesOf (classinfo c) cls
+          toPred cls = HsClassP cls [lty']
+              
+
+
+                          
 resolvePreds :: Ctxt -> TanType -> Stateful TanType
-resolvePreds c ty = do preds' <- simplifyPreds $ flattenPreds preds
+resolvePreds c ty = do preds' <- simplifyPreds $ flattenPredsOut preds
                        return $ tyFromPreds ty' preds'
     where (ty', preds) = collectPredsTy ty
           simplifyPreds preds = return preds -- TODO: check for ambigous constraints
           occursInTy (HsClassP cls [lty]) = any (flip occurs ty) $ Set.toList $ tyVarsOf $ unLoc lty
+                                            
+flattenPredsOut :: [HsPred Name] -> [HsPred Name]
+flattenPredsOut preds = distinct $ concat $ map flattenPredOut preds
+    
+flattenPredOut :: HsPred Name -> [HsPred Name]
+flattenPredOut (HsClassP cls [lty]) = (HsClassP cls [lty']):preds
+    where (lty', preds) = collectPredsLTy lty
+                          

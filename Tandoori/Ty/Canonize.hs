@@ -1,19 +1,14 @@
-module Tandoori.Ty.Canonize (collectPredsTy, collectPredsLTy, tyFromPreds) where
+module Tandoori.Ty.Canonize (collectPredsTy, collectPredsLTy) where
 
 import Tandoori
 import Tandoori.Util
 import Tandoori.Ty
-import Tandoori.Ty.Ctxt
 import Tandoori.State
 import Tandoori.GHC.Internals
 import qualified Data.Set as Set
     
 type CanonizationRes = [HsPred Name]
 
-tyFromPreds :: TanType -> [HsPred Name] -> TanType
-tyFromPreds ty preds = HsForAllTy Implicit noBinder lctxt (genLoc ty)
-    where lctxt = genLoc (map genLoc preds)
-                                            
 combineRes :: [CanonizationRes] -> CanonizationRes
 combineRes [res] = res
 combineRes (preds:ress) = let preds' = combineRes ress

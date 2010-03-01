@@ -37,8 +37,10 @@ typecheckMod mod = runDyn $ do
                      (ltydecls, group) <- liftIO $ runScope env mod
                      let tydecls = map unLoc ltydecls
                          cons = concatMap constructorsFromDecl tydecls
-                         classdecls = map funsFromClassDecl $ sortClassDecls tydecls
-                         c = addUserDecls (mkCtxt cons) (concatMap fst classdecls)
+                         cg = mkClassGraph tydecls
+                         classdecls = map funsFromClassDecl $ sortClassDecls cg
+                         classinfo = mkClassInfo cg
+                         c = addUserDecls (mkCtxt cons classinfo) (concatMap fst classdecls)
                              
                      let infer = do
                               mapM (inferBinds c) $ map snd classdecls
@@ -47,31 +49,31 @@ typecheckMod mod = runDyn $ do
                               return $ (c', errors)
                      return $ evalState infer mkState
 
-foobar = do mod <- parseMod "input/class-cascade-simple.hs"
-            runDyn $ do
-              env <- getSession
-              (tydecls, group) <- liftIO $ runScope env mod
-              let cons = concat $ map constructorsFromDecl $ map unLoc tydecls
-                  c = mkCtxt cons
-              let ValBindsOut [(_, bag1), (_, bag2)] sigs = hs_valds group
-                  [L _ FunBind { fun_id = L _ funName }] = bagToList bag1
-                  [L _ bind2] = bagToList bag2
-              let infer = do
-                       alpha <- mkTv
-                       let ty = tyCurryFun [alpha, alpha]
-                           lctxt = noLoc [noLoc $ HsClassP numClassName [noLoc alpha]]
-                           ty' = HsForAllTy undefined undefined lctxt (noLoc ty)
-                           sig = TypeSig (noLoc funName) (noLoc ty')
-                           c' = addUserDecls c [noLoc sig]                                
-                       return $ c'
-              return $ (evalState infer mkState, bind2)
+-- foobar = do mod <- parseMod "input/class-cascade-simple.hs"
+--             runDyn $ do
+--               env <- getSession
+--               (tydecls, group) <- liftIO $ runScope env mod
+--               let cons = concat $ map constructorsFromDecl $ map unLoc tydecls
+--                   c = mkCtxt cons
+--               let ValBindsOut [(_, bag1), (_, bag2)] sigs = hs_valds group
+--                   [L _ FunBind { fun_id = L _ funName }] = bagToList bag1
+--                   [L _ bind2] = bagToList bag2
+--               let infer = do
+--                        alpha <- mkTv
+--                        let ty = tyCurryFun [alpha, alpha]
+--                            lctxt = noLoc [noLoc $ HsClassP numClassName [noLoc alpha]]
+--                            ty' = HsForAllTy undefined undefined lctxt (noLoc ty)
+--                            sig = TypeSig (noLoc funName) (noLoc ty')
+--                            c' = addUserDecls c [noLoc sig]                                
+--                        return $ c'
+--               return $ (evalState infer mkState, bind2)
 
 testFromContext c b = evalState infer mkState
     where infer = do (names, m) <- inferBind c b
                      return m
               
-foobar' =  do (c, b) <- foobar
-              return $ (c, testFromContext c b)
+-- foobar' =  do (c, b) <- foobar
+--               return $ (c, testFromContext c b)
               
 main' [src_filename] = do mod <- parseMod src_filename
                           (c, errors) <- typecheckMod mod
@@ -86,10 +88,10 @@ main' _ = error "Usage: tandoori filename.hs"
 main = do args <- getArgs
           main' args
 
-test = do p <- main' ["input/cikk.hs"]
-          let tyFoo = snd $ snd $ (Map.toList $ polyVars p)!!0
-              ltyId = snd $ (Map.toList $ userdecls p)!!1
-              tyId = unLoc ltyId
-              HsTyVar nGen = tyFoo
-              HsForAllTy _ _ _ (L _ (HsFunTy _ (L _ (HsTyVar nUser)))) = tyId
-          return (tyFoo, tyId)
+-- test = do p <- main' ["input/cikk.hs"]
+--           let tyFoo = snd $ snd $ (Map.toList $ polyVars p)!!0
+--               ltyId = snd $ (Map.toList $ userdecls p)!!1
+--               tyId = unLoc ltyId
+--               HsTyVar nGen = tyFoo
+--               HsForAllTy _ _ _ (L _ (HsFunTy _ (L _ (HsTyVar nUser)))) = tyId
+--           return (tyFoo, tyId)

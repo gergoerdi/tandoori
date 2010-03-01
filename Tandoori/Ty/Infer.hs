@@ -158,7 +158,7 @@ inferBinds c lbinds = do let binds = map unLoc $ bagToList lbinds
                                                                    case fitDecl tyDecl ty' of
                                                                      Left errs         -> do addError $ CantFitDecl tyDecl ty' errs
                                                                                              return $ c
-                                                                     Right (s, preds)  -> if ensuresPredicates preds tyDecl'
+                                                                     Right (s, preds)  -> if ensuresPredicates c preds tyDecl'
                                                                                           then return c
                                                                                           else do addError $ CantFitDecl tyDecl ty' []
                                                                                                   return $ c

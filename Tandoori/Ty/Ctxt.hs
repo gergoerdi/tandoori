@@ -2,6 +2,7 @@ module Tandoori.Ty.Ctxt (Ctxt(..), mkCtxt, getCon, getPolyVar, addPolyVar, addUs
 
 import Tandoori
 import Tandoori.Ty
+import Tandoori.Ty.ClassDecl
 import Tandoori.Ty.ShowTy
 import Tandoori.Ty.MonoEnv
 import Tandoori.Ty.Pretty
@@ -18,6 +19,7 @@ import Data.Maybe
 data Ctxt = Ctxt { polyVars :: Map.Map VarName (MonoEnv, TanType),
                    forcedMonoVars :: Set.Set VarName,
                    cons :: Map.Map ConName TanType,
+                   classinfo :: ClassInfo,
                    userdecls :: Map.Map VarName (Located TanType) }
              
 printCtxt :: Ctxt -> IO ()             
@@ -36,11 +38,12 @@ printCtxt c = do print $ tabTy (rowsDecl ++ rowsInfer)
           rowsInfer = map (uncurry rowFromInfer) $ Map.toList $ polyVars c
           rowsDecl = map (uncurry rowFromDecl) $ map (\ (name, lty) ->  (name, unLoc lty)) $ Map.toList $ userdecls c
 
-mkCtxt :: [(ConName, TanType)] -> Ctxt
-mkCtxt cons = Ctxt { polyVars = Map.empty,
-                     forcedMonoVars = Set.empty,
-                     cons = conmap,
-                     userdecls = Map.empty }
+mkCtxt :: [(ConName, TanType)] -> ClassInfo -> Ctxt
+mkCtxt cons classinfo = Ctxt { polyVars = Map.empty,
+                               forcedMonoVars = Set.empty,
+                               cons = conmap,
+                               classinfo = classinfo,
+                               userdecls = Map.empty }
     where conmap = Map.fromList cons
                    
 isCon :: Ctxt -> ConName -> Bool

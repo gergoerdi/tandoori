@@ -1,6 +1,7 @@
 module Tandoori.Ty where
 
 import Tandoori
+import Tandoori.Util
 import Tandoori.GHC.Internals
     
 import qualified Data.Set as Set
@@ -18,6 +19,10 @@ tyUncurryFun :: TanType -> [TanType]
 tyUncurryFun (HsFunTy left right) = (unLoc left):(tyUncurryFun $ unLoc right)
 tyUncurryFun ty                   = [ty]
 
+tyFromPreds :: TanType -> [HsPred Name] -> TanType
+tyFromPreds ty preds = HsForAllTy Implicit noBinder lctxt (genLoc ty)
+    where lctxt = genLoc (map genLoc preds)
+                                            
 --- Builtin types                
 builtinTyNames = [boolTyConName, intTyConName, charTyConName, listTyConName]
 
