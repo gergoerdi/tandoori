@@ -6,23 +6,30 @@ import Tandoori.GHC.Internals
     
 import qualified Data.Set as Set
     
+data CanonizedType = CanonizedType { ctyTy :: HsType Name,
+                                     ctyLPreds :: HsContext Name }    
+    
+mkCanonizedType :: HsType Name -> HsContext Name -> CanonizedType
+mkCanonizedType ty lpreds = CanonizedType { ctyTy = ty, ctyLPreds = lpreds}
+
+noPreds :: HsType Name -> CanonizedType
+noPreds ty = mkCanonizedType ty []
+                 
 --- Utility                                                      
-tyCurryCon :: [TanType] -> TanType
+tyCurryCon :: [TanType] -> TanType -- TODO: CanonizedType
 tyCurryCon [ty]     = ty
 tyCurryCon (ty:tys) = HsAppTy (noLoc ty) (noLoc $ tyCurryCon tys)
 
-tyCurryFun :: [TanType] -> TanType
-tyCurryFun [ty]     = ty
-tyCurryFun (ty:tys) = HsFunTy (noLoc ty) (noLoc $ tyCurryFun tys)
+tyCurryFun :: [CanonizedType] -> CanonizedType
+tyCurryFun [cty]      = cty
+tyCurryFun (cty:ctys) = mkCanonizedType (HsFunTy (noLoc tyLeft) (noLoc tyRight)) (lpredsLeft ++ lpredsRight)
+    where ctyRight = tyCurryFun ctys
+          tyLeft = ctyTy cty
+          tyRight = ctyTy ctyRight
+          lpredsLeft = ctyLPreds cty
+          lpredsRight = ctyLPreds ctyRight                                         
+    
 
-tyUncurryFun :: TanType -> [TanType]
-tyUncurryFun (HsFunTy left right) = (unLoc left):(tyUncurryFun $ unLoc right)
-tyUncurryFun ty                   = [ty]
-
-tyFromPreds :: TanType -> [HsPred Name] -> TanType
-tyFromPreds ty preds = HsForAllTy Implicit noBinder lctxt (genLoc ty)
-    where lctxt = genLoc (map genLoc preds)
-                                            
 --- Builtin types                
 builtinTyNames = [boolTyConName, intTyConName, charTyConName, listTyConName]
 
@@ -38,21 +45,18 @@ tyList ty    = HsListTy $ noLoc ty
 tyTuple tys  = HsTupleTy Boxed $ map noLoc tys
 
 --- Builtin data constructors
-builtinDataCons = [nilDataCon, consDataCon, trueDataCon, falseDataCon]
+builtinDataCons = [nilDataCon, consDataCon] --, trueDataCon, falseDataCon]
 builtinDataConNames = map dataConName builtinDataCons
 
 --- Builtin typeclasses
 builtinClassNames = [eqClassName, ordClassName, numClassName, fractionalClassName]
                       
 --- Types of literals              
-typeOfLit :: HsLit -> TanType
-typeOfLit (HsInt _)    = tyInt
-typeOfLit (HsChar _)   = tyChar
-typeOfLit (HsString _) = tyString
+typeOfLit :: HsLit -> CanonizedType
+typeOfLit (HsInt _)    = noPreds tyInt
+typeOfLit (HsChar _)   = noPreds tyChar
+typeOfLit (HsString _) = noPreds tyString
 
-ltyVarsOf :: Located TanType -> Set.Set TvName
-ltyVarsOf = tyVarsOf . unLoc
-                         
 tyVarsOf :: TanType -> Set.Set TvName
 tyVarsOf ty                               | isTyCon ty = Set.empty
 tyVarsOf (HsTyVar name)                                = Set.singleton name

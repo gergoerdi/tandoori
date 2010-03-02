@@ -133,8 +133,8 @@ explodePreds tvs lpreds = map explode tvs
           occursPred tv (HsClassP cls [lty]) = occurs tv (unLoc lty)
           occursLPred tv = occursPred tv . unLoc                           
 
-testMgu = do tv <- mkTv
-             let ty1 = tyCurryFun [tv, tv]
-                 ty2 = HsForAllTy undefined undefined lctxt (noLoc ty1)
-                 lctxt = noLoc [noLoc $ HsClassP numClassName [noLoc tv]]
-             return $ (ty1, ty2, mgu [(ty1, ty2)])
+-- testMgu = do tv <- mkTv
+--              let ty1 = tyCurryFun [tv, tv]
+--                  ty2 = HsForAllTy undefined undefined lctxt (noLoc ty1)
+--                  lctxt = noLoc [noLoc $ HsClassP numClassName [noLoc tv]]
+--              return $ (ty1, ty2, mgu [(ty1, ty2)])

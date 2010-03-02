@@ -3,6 +3,8 @@
 module Tandoori.Errors (ErrorLocation(..), ErrorSource(..), ErrorMessage(..), ErrorContent(..)) where
 
 import Tandoori
+import Tandoori.Ty
+import Tandoori.Ty.Canonize
 import Tandoori.GHC.Internals    
 import Tandoori.Ty.MonoEnv
 import Tandoori.Ty.Pretty
@@ -30,7 +32,7 @@ data ErrorContent = OtherMessage String
                   | UndefinedCon ConName
                   | UndefinedVar VarName
                   | UnificationFailed [MonoEnv] [(TanType, TanType)]
-                  | CantFitDecl TanType TanType [(TanType, TanType)]
+                  | CantFitDecl CanonizedType CanonizedType [(TanType, TanType)]
 
 showFailedEqs sep typairs = unwords $ map (\ (t1, t2) -> unwords [show t1, sep, show t2]) typairs
 
@@ -43,8 +45,8 @@ instance Outputable ErrorContent where
                                         u' <- prettyTyM u
                                         return (t', u')
     ppr (CantFitDecl tyDecl ty typairs)  = text "Declared type" <+> text (show tyDecl') <+> text "is not a special case of inferred type" <+> text (show ty')
-        where (tyDecl', ty') = runPretty $ do tyDecl' <- prettyTyM tyDecl
-                                              ty' <- prettyTyM ty
+        where (tyDecl', ty') = runPretty $ do tyDecl' <- prettyTyM $ uncanonize tyDecl
+                                              ty' <- prettyTyM $ uncanonize ty
                                               return (tyDecl', ty')
     ppr (OtherMessage message)           = text message
 
@@ -57,7 +59,7 @@ instance Show ErrorContent where
                                         u' <- prettyTyM u
                                         return (t', u')
     show (CantFitDecl tyDecl ty typairs) = unwords ["Declared type", show tyDecl', "is not a special case of inferred type", show ty']
-        where (tyDecl', ty') = runPretty $ do tyDecl' <- prettyTyM tyDecl
-                                              ty' <- prettyTyM ty
+        where (tyDecl', ty') = runPretty $ do tyDecl' <- prettyTyM $ uncanonize tyDecl
+                                              ty' <- prettyTyM $ uncanonize ty
                                               return (tyDecl', ty')
     show (OtherMessage message)          = message

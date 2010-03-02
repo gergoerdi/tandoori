@@ -1,8 +1,10 @@
 {-# LANGUAGE FlexibleInstances #-}
 
-module Tandoori.Ty.ShowTy(showTy) where
+module Tandoori.Ty.ShowTy(showTy, showCTy) where
 
 import Tandoori.GHC.Internals
+import Tandoori.Ty
+import Tandoori.Ty.Canonize
     
 data ShowTyCtxt = C { isLeftOfFun :: Bool }                 
              
@@ -16,7 +18,7 @@ showFunRight c ty = showTy' c{isLeftOfFun = False} ty
 
 showInParen c ty = showTy' c{isLeftOfFun = False} ty                    
 
-forceParen = False                   
+forceParen = False
 
 parenIf :: Bool -> String -> String             
 parenIf True  s = "(" ++ s ++ ")"
@@ -25,6 +27,9 @@ parenIf False s = if forceParen then (parenIf True s) else s
 showTy :: HsType Name -> String
 showTy ty = showTy' C{isLeftOfFun = False} ty
 
+showCTy :: CanonizedType -> String
+showCTy = showTy . uncanonize
+            
 todo xs = error $ unwords ("showTy: TODO:":xs)                 
 unsupported xs = error $ unwords ("showTy: Unsupported:":xs)
 
@@ -40,7 +45,7 @@ showTy' c (HsListTy lty)              = "[" ++ (showTy' c $ unLoc lty) ++ "]"
 showTy' c (HsTupleTy boxity ltys)     = "(" ++ (joinWith ", " $ map (showInParen c . unLoc) ltys) ++ ")"
 showTy' c (HsOpTy lleft lop lright)   = todo ["HsOpTy"]
 showTy' c (HsParTy lty)               = "(" ++ (showInParen c $ unLoc lty) ++ ")"
-showTy' c (HsPredTy pred)             = unsupported ["HsPredTy", showPred pred]
+showTy' c (HsPredTy pred)             = unwords ["HsPredTy", showPred pred] -- unsupported ["HsPredTy", showPred pred]
 showTy' c (HsNumTy n)                 = unsupported ["HsNumTy", show n]
 showTy' c (HsPArrTy lty)              = unsupported ["HsPArrTy", showTy' c (unLoc lty)]
 showTy' c (HsKindSig lty kind)        = unsupported ["HsKindSig"]
@@ -59,4 +64,7 @@ showPred :: HsPred Name -> String
 showPred (HsClassP name [lty]) = unwords [showName name, showTy $ unLoc lty]
                 
 instance Show (HsType Name) where
-    show = showTy 
+    show = showTy
+           
+instance Show CanonizedType where
+    show = showCTy 

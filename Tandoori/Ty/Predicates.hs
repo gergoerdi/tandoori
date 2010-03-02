@@ -12,8 +12,6 @@ import qualified Data.Set as Set
 
 import Tandoori.Kludge.Show
     
-type CanonizationRes = [HsPred Name]
-
 -- simplifyPred :: Ctxt -> [HsPred Name] -> HsPred Name -> ([HsPred Name], [HsPred Name])
 -- simplifyPred c ps p                      | elem p ps  = ([], [])
 -- simplifyPred c ps p@(HsClassP cls [lty])              = case unLoc lty of
@@ -56,38 +54,40 @@ distinct (x:xs)  | elem x xs  = distinct xs
                                 
 ensuresPredicates :: Ctxt
                   -> [HsPred Name]  -- Predicates which must be ensured by...                     
-                  -> TanType        -- ... this type declaration
+                  -> CanonizedType  -- ... this type declaration
                   -> Bool
-ensuresPredicates c []     _                         = True
-ensuresPredicates c preds  (HsForAllTy _ _ lctxt _)  = preds `isSubsetOf` preds'
-    where preds' = flattenPredsIn c $ map unLoc $ unLoc lctxt
+-- ensuresPredicates c []     _    = True
+ensuresPredicates c preds  cty  = preds `isSubsetOf` (map unLoc preds')
+    where lpreds = ctyLPreds cty
+          preds' = flattenPredsIn c lpreds
           xs `isSubsetOf` ys = all (flip elem ys) xs
-ensuresPredicates c _      _                         = False                                
 
-flattenPredsIn :: Ctxt -> [HsPred Name] -> [HsPred Name]
+flattenPredsIn :: Ctxt -> [LHsPred Name] -> [LHsPred Name]
 flattenPredsIn c preds = distinct $ concat $ map (flattenPredIn c) preds
                         
-flattenPredIn :: Ctxt -> HsPred Name -> [HsPred Name]
-flattenPredIn c (HsClassP cls [lty]) = (HsClassP cls [lty']):preds'
-    where (lty', preds) = collectPredsLTy lty
-          preds' = flattenPredsIn c (map toPred baseClss ++ preds)
+flattenPredIn :: Ctxt -> LHsPred Name -> [LHsPred Name]
+flattenPredIn c (L loc (HsClassP cls [lty])) = (L loc (HsClassP cls [lty'])):lpreds'
+    where cty = canonize $ unLoc lty
+          lpreds = ctyLPreds cty
+          lpreds' = flattenPredsIn c (map toPred baseClss ++ lpreds)
           baseClss = baseClassesOf (classinfo c) cls
-          toPred cls = HsClassP cls [lty']
-              
-
-
+          toPred cls = noLoc $ HsClassP cls [lty']
+          lty' = noLoc $ ctyTy cty
                           
-resolvePreds :: Ctxt -> TanType -> Stateful TanType
-resolvePreds c ty = do preds' <- simplifyPreds $ flattenPredsOut preds
-                       return $ tyFromPreds ty' preds'
-    where (ty', preds) = collectPredsTy ty
+resolvePreds :: Ctxt -> CanonizedType -> Stateful CanonizedType
+resolvePreds c cty = do preds' <- simplifyPreds $ flattenPredsOut lpreds
+                        return $ mkCanonizedType ty preds'
+    where ty = ctyTy cty
+          lpreds = ctyLPreds cty
           simplifyPreds preds = return preds -- TODO: check for ambigous constraints
-          occursInTy (HsClassP cls [lty]) = any (flip occurs ty) $ Set.toList $ tyVarsOf $ unLoc lty
+          -- occursInTy (HsClassP cls [lty]) = any (flip occurs ty) $ Set.toList $ tyVarsOf $ unLoc lty
                                             
-flattenPredsOut :: [HsPred Name] -> [HsPred Name]
-flattenPredsOut preds = distinct $ concat $ map flattenPredOut preds
+flattenPredsOut :: [LHsPred Name] -> [LHsPred Name]
+flattenPredsOut lpreds = distinct $ concat $ map flattenPredOut lpreds
     
-flattenPredOut :: HsPred Name -> [HsPred Name]
-flattenPredOut (HsClassP cls [lty]) = (HsClassP cls [lty']):preds
-    where (lty', preds) = collectPredsLTy lty
+flattenPredOut :: LHsPred Name -> [LHsPred Name]
+flattenPredOut (L loc (HsClassP cls [lty])) = (L loc (HsClassP cls [lty'])):lpreds
+    where cty = canonize $ unLoc lty
+          lpreds = ctyLPreds cty
+          lty' = noLoc $ ctyTy cty
                           

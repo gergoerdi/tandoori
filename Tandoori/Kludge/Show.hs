@@ -137,7 +137,9 @@ deriving instance Show (Sig Id)
 deriving instance Show (HsModule Name)
 deriving instance Show (HaddockModInfo Name)
 deriving instance Show (ImportDecl Name)
+deriving instance Show (ImportDecl RdrName)
 deriving instance Show (IE Name)
+deriving instance Show (IE RdrName)
 
 deriving instance Show Ctxt
 deriving instance Show MonoEnv         
