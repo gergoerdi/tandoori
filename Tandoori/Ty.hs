@@ -32,20 +32,26 @@ tyCurryFun (cty:ctys) = mkCanonizedType (HsFunTy (noLoc tyLeft) (noLoc tyRight))
 
 --- Builtin types                
 builtinTyNames = [boolTyConName, intTyConName, charTyConName, listTyConName]
+-- builtinTyNames = [intTyConName, charTyConName, listTyConName]
 
-isTyCon :: TanType -> Bool                             
+isTyCon :: HsType Name -> Bool                             
 isTyCon (HsTyVar name) = (isTyConName name) || (elem name builtinTyNames)
 isTyCon _              = False
                              
-tyBool       = HsTyVar boolTyConName
-tyInt        = HsTyVar intTyConName
-tyChar       = HsTyVar charTyConName
+tyBool       = noPreds $ HsTyVar boolTyConName
+tyInt        = noPreds $ HsTyVar intTyConName
+tyChar       = noPreds $ HsTyVar charTyConName
 tyString     = tyList tyChar
-tyList ty    = HsListTy $ noLoc ty
-tyTuple tys  = HsTupleTy Boxed $ map noLoc tys
+tyList cty   = mkCanonizedType (HsListTy $ noLoc ty) preds
+    where ty = ctyTy cty
+          preds = ctyLPreds cty                  
+tyTuple ctys  = mkCanonizedType (HsTupleTy Boxed $ map noLoc tys) preds
+    where tys = map ctyTy ctys
+          preds = concatMap ctyLPreds ctys
 
 --- Builtin data constructors
-builtinDataCons = [nilDataCon, consDataCon] --, trueDataCon, falseDataCon]
+-- builtinDataCons = [nilDataCon, consDataCon]
+builtinDataCons = [nilDataCon, consDataCon, trueDataCon, falseDataCon]
 builtinDataConNames = map dataConName builtinDataCons
 
 --- Builtin typeclasses
@@ -53,9 +59,9 @@ builtinClassNames = [eqClassName, ordClassName, numClassName, fractionalClassNam
                       
 --- Types of literals              
 typeOfLit :: HsLit -> CanonizedType
-typeOfLit (HsInt _)    = noPreds tyInt
-typeOfLit (HsChar _)   = noPreds tyChar
-typeOfLit (HsString _) = noPreds tyString
+typeOfLit (HsInt _)    = tyInt
+typeOfLit (HsChar _)   = tyChar
+typeOfLit (HsString _) = tyString
 
 tyVarsOf :: TanType -> Set.Set TvName
 tyVarsOf ty                               | isTyCon ty = Set.empty

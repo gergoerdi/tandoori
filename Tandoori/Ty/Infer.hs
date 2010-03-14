@@ -18,21 +18,23 @@ import qualified Data.Set as Set
 import qualified Data.Map as Map
 
 import Tandoori.GHC.Internals
+
+import Module    
     
 import Bag (bagToList)
 
 mkCTv = liftM noPreds mkTv
     
 tyCon :: Ctxt -> ConName -> Stateful CanonizedType
-tyCon c name  | name == dataConName nilDataCon     = do alpha <- mkTv
-                                                        return $ noPreds $ tyList alpha
+tyCon c name  | name == dataConName nilDataCon     = do alpha <- mkCTv
+                                                        return $ tyList alpha
                                                           
-tyCon c name  | name == dataConName consDataCon    = do alpha <- mkTv
-                                                        return $ tyCurryFun [noPreds alpha, noPreds $ tyList alpha, noPreds $ tyList alpha]
+tyCon c name  | name == dataConName consDataCon    = do alpha <- mkCTv
+                                                        return $ tyCurryFun [alpha, tyList alpha, tyList alpha]
 
--- -- TODO: Clean up builtin constructors mess
--- tyCon c name  | name == dataConName trueDataCon ||
---                 name == dataConName falseDataCon   = return tyBool             
+--TODO: Clean up builtin constructors mess
+tyCon c name  | name == dataConName trueDataCon ||
+                name == dataConName falseDataCon   = return tyBool
 tyCon c name                                       = case getCon c name of
                                                        Nothing -> do addError (UndefinedCon name)
                                                                      mkCTv
@@ -57,13 +59,13 @@ infer :: Ctxt -> (Located TanExpr) -> Stateful (MonoEnv, CanonizedType)
 infer c (L srcloc expr) = doLoc srcloc $ withSrc expr $ infer' c expr
 
 typeOfOverLit :: HsOverLit Name -> Stateful CanonizedType
-typeOfOverLit (OverLit { ol_val = HsIsString _ }) = return $ noPreds $ tyString
+typeOfOverLit (OverLit { ol_val = HsIsString _ }) = return $ tyString
 typeOfOverLit (OverLit { ol_val = val }) = do alpha <- mkTv
                                               let tc = case val of
                                                          HsIntegral _ -> numClassName
                                                   lpred = genLoc $ HsClassP tc [genLoc alpha]
                                               return $ mkCanonizedType alpha [lpred]
-                                              return $ noPreds $ tyInt
+                                              return $ tyInt
                                                              
 infer' :: Ctxt -> TanExpr -> Stateful (MonoEnv, CanonizedType)
 infer' c (HsLit lit)                       = return $ justType $ typeOfLit lit
@@ -73,9 +75,9 @@ infer' c (HsVar name) | isDataConName name = do ty <- tyCon c name
                                              
 infer' c (ExplicitList _ lexprs)           = do (ms, ts) <- maptupM (infer c) lexprs
                                                 (m, t) <- unify c ms ts
-                                                return (m, canonize $ tyList $ uncanonize t) -- TODO: tyList :: CanonizedType -> CanonizedType
+                                                return (m, tyList t)
 infer' c (ExplicitTuple lexprs _)          = do (ms, ts) <- maptupM (infer c) lexprs
-                                                unify c ms [canonize $ tyTuple $ map uncanonize ts] -- TODO tyTuple :: CanonizedType -> CanonizedType
+                                                unify c ms [tyTuple ts]
                                                        
 infer' c (HsApp ltyFun ltyParam)           = do (m1, ty1) <- infer c ltyFun
                                                 (m2, ty2) <- infer c ltyParam
@@ -216,10 +218,10 @@ inferPat c (ConPatIn (L _ conname) details)  = do tycon <- tyCon c conname
           tyRightmost ty                                   = ty
                                                  
 inferPat c (TuplePat lpats _ _)              = do (nss, ms, ts) <- maptup3M (inferPat c . unLoc) lpats
-                                                  return (Set.unions nss, combineMonos ms, canonize $ tyTuple $ map uncanonize ts)
+                                                  return (Set.unions nss, combineMonos ms, tyTuple ts)
 inferPat c (ListPat lpats _)                 = do (nss, ms, ts) <- maptup3M (inferPat c . unLoc) lpats
                                                   (m', t') <- unify c ms ts
-                                                  return (Set.unions nss, m', canonize $ tyList $ uncanonize t')
+                                                  return (Set.unions nss, m', tyList t')
 inferPat c (NPat overlit _ _)                = liftM justTypePat $ typeOfOverLit overlit
 
                           
