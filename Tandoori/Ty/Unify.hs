@@ -1,4 +1,4 @@
-module Tandoori.Ty.Unify (Substitution, substCTy, substPred, mgu, fitDecl) where
+module Tandoori.Ty.Unify (Substitution, substCTy, mgu, fitDecl) where
 
 import Tandoori
 import Tandoori.Util

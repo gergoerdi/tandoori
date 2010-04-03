@@ -33,6 +33,7 @@ data ErrorContent = OtherMessage String
                   | UndefinedVar VarName
                   | UnificationFailed [MonoEnv] [(TanType, TanType)]
                   | CantFitDecl CanonizedType CanonizedType [(TanType, TanType)]
+                  | AmbiguousPredicate (HsType Name) (HsPred Name)
 
 showFailedEqs sep typairs = unwords $ map (\ (t1, t2) -> unwords [show t1, sep, show t2]) typairs
 
@@ -48,6 +49,12 @@ instance Outputable ErrorContent where
         where (tyDecl', ty') = runPretty $ do tyDecl' <- prettyTyM $ uncanonize tyDecl
                                               ty' <- prettyTyM $ uncanonize ty
                                               return (tyDecl', ty')
+    ppr (AmbiguousPredicate ty pred)     = text "Ambiguous predicate" <+> text (showPred pred') <+> text "for type" <+> text (show ty')
+        where (ty', pred') = runPretty $ do ty' <- prettyTyM ty
+                                            tyPred' <- prettyTyM tyPred
+                                            return (ty', HsClassP cls [L loc tyPred'])
+                  where HsClassP cls [ltyPred] = pred
+                        L loc tyPred = ltyPred
     ppr (OtherMessage message)           = text message
 
 instance Show ErrorContent where

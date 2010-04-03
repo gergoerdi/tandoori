@@ -6,19 +6,14 @@ import Tandoori.Util
 import Tandoori.Ty
 import Tandoori.Ty.Ctxt
 import Tandoori.State
+import Tandoori.Errors
 import Tandoori.GHC.Internals
 import Tandoori.Ty.ClassDecl
 import qualified Data.Set as Set
-
+import Control.Monad
+    
 import Tandoori.Kludge.Show
     
--- simplifyPred :: Ctxt -> [HsPred Name] -> HsPred Name -> ([HsPred Name], [HsPred Name])
--- simplifyPred c ps p                      | elem p ps  = ([], [])
--- simplifyPred c ps p@(HsClassP cls [lty])              = case unLoc lty of
---                                                           HsTyVar tv -> p
-                                             
-                                        
-                                            
 instance Eq HsBang where
     HsNoBang  ==  HsNoBang  = True
     HsStrict  ==  HsStrict  = True
@@ -75,12 +70,17 @@ flattenPredIn c (L loc (HsClassP cls [lty])) = (L loc (HsClassP cls [lty'])):lpr
           lty' = noLoc $ ctyTy cty
                           
 resolvePreds :: Ctxt -> CanonizedType -> Stateful CanonizedType
-resolvePreds c cty = do preds' <- simplifyPreds $ flattenPredsOut lpreds
-                        return $ mkCanonizedType ty preds'
+resolvePreds c cty = do lpreds'' <- filterOccurs
+                        return $ mkCanonizedType ty lpreds''
     where ty = ctyTy cty
           lpreds = ctyLPreds cty
-          simplifyPreds preds = return preds -- TODO: check for ambigous constraints
-          -- occursInTy (HsClassP cls [lty]) = any (flip occurs ty) $ Set.toList $ tyVarsOf $ unLoc lty
+          lpreds' = flattenPredsOut lpreds
+          filterOccurs = filterM (checkPred . unLoc) lpreds'
+          checkPred pred = if not (occursInTy pred)
+                           then do addError $ AmbiguousPredicate ty pred
+                                   return False
+                           else return True
+          occursInTy (HsClassP cls [lty]) = any (flip occurs ty) $ Set.toList $ tyVarsOf $ unLoc lty
                                             
 flattenPredsOut :: [LHsPred Name] -> [LHsPred Name]
 flattenPredsOut lpreds = distinct $ concat $ map flattenPredOut lpreds

@@ -1,6 +1,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 
-module Tandoori.Ty.ShowTy(showTy, showCTy) where
+module Tandoori.Ty.ShowTy(showTy, showCTy, showPred) where
 
 import Tandoori.GHC.Internals
 import Tandoori.Ty
