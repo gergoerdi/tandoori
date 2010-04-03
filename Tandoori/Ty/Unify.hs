@@ -1,4 +1,4 @@
-module Tandoori.Ty.Unify (Substitution, substCTy, mgu, fitDecl) where
+module Tandoori.Ty.Unify (Substitution, substCTy, substPred, mgu, fitDecl) where
 
 import Tandoori
 import Tandoori.Util
@@ -65,12 +65,14 @@ substLTy s lty = do ty' <- substTy s (unLoc lty)
                     return $ noLoc ty'
                          
 substCTy :: Substitution -> (CanonizedType, HsContext Name) -> CanonizedType
-substCTy s (cty, ctxt) = mkCanonizedType ty' ctxt''
+substCTy s (cty, ctxt) = mkCanonizedType ty' ctxtInEffect
     where SubstRes tvs ty' = substTy s ty
+          -- ctxtInEffect = trace (show (ctxt, s)) $ (map (substLPred s) $ ctyLPreds cty) ++ (filter hasRelevantTyVars ctxt')
           ctxtInEffect = (map (substLPred s) $ ctyLPreds cty) ++ (filter hasRelevantTyVars ctxt')
           ctxt' = map (substLPred s) ctxt
           ty = ctyTy cty
-          ctxt'' = map (substLPred s) ctxtInEffect
+          -- ctxt'' = map (substLPred s) ctxtInEffect
+          -- hasRelevantTyVars lpred = True
           hasRelevantTyVars lpred = any (\ tv -> tv `Set.member` tvs) $ Set.toList $ tyVarsOfPred (unLoc lpred)
                                         
 substLPred :: Substitution -> LHsPred Name -> LHsPred Name

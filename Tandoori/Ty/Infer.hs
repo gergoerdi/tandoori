@@ -83,9 +83,8 @@ infer' c (HsApp ltyFun ltyParam)           = do (m1, ty1) <- infer c ltyFun
                                                 (m2, ty2) <- infer c ltyParam
                                                 alpha <- mkCTv
                                                 (m, ty) <- unify c [m1, m2] [ty1, tyCurryFun [ty2, alpha]]
-                                                ty' <- resolvePreds c ty
-                                                case ctyTy ty' of
-                                                  HsFunTy (L _ ty3) (L _ ty4) -> return (m, mkCanonizedType ty4 (ctyLPreds ty'))
+                                                case ctyTy ty of
+                                                  HsFunTy (L _ ty3) (L _ ty4) -> return (m, mkCanonizedType ty4 (ctyLPreds ty))
                                                   _                           -> do beta <- mkCTv
                                                                                     return (m, beta)
                                                                  
@@ -156,17 +155,17 @@ inferBinds c lbinds = do let binds = map unLoc $ bagToList lbinds
                                         Nothing              -> do ty' <- resolvePreds c ty
                                                                    return $ addPolyVar c name (m, ty')                                        
                                         Just (L loc tyDecl)  -> doLoc loc $ do
-                                                                  ty' <- resolvePreds c ty
-                                                                  case fitDecl (ctyTy tyDecl) (ctyTy ty') of
-                                                                    Left errs         -> do addError $ CantFitDecl tyDecl ty' errs
+                                                                  case fitDecl (ctyTy tyDecl) (ctyTy ty) of
+                                                                    Left errs         -> do addError $ CantFitDecl tyDecl ty errs
                                                                                             return $ c
-                                                                    Right s  -> if ensuresPredicates c preds tyDecl'
-                                                                                then return c
-                                                                                else do addError $ CantFitDecl tyDecl ty' []
-                                                                                        return $ c
+                                                                    Right s  -> do ty' <- resolvePreds c (substCTy s (ty, []))
+                                                                                   let preds = map unLoc $ ctyLPreds ty'
+                                                                                   if ensuresPredicates c preds tyDecl'
+                                                                                     then return c
+                                                                                     else do addError $ CantFitDecl tyDecl ty' []
+                                                                                             return $ c
                                                                         where tyDecl' = substCTy s (tyDecl, [])
-                                                                              preds = map unLoc $ ctyLPreds ty'
-                                                                                               
+                                                                                        
 inferBind :: Ctxt -> (HsBind Name) -> Stateful (Set.Set Name, MonoEnv)
 inferBind c PatBind{pat_lhs = lpat, pat_rhs = grhss} = do (ns, m, t) <- inferPat c (unLoc lpat)
                                                           (m', t') <- inferGRhss c grhss
@@ -230,11 +229,12 @@ unify :: Ctxt -> [MonoEnv] -> [CanonizedType] -> Stateful (MonoEnv, CanonizedTyp
 unify c ms tys = do eqs <- monoeqs
                     alpha <- mkTv
                     let eqs' = map (\ ty -> (alpha, ctyTy ty)) tys
+                        calpha = mkCanonizedType alpha (concatMap ctyLPreds tys)
                     case mgu eqs eqs' of
                       Left errs -> do addError $ UnificationFailed ms errs
                                       return $ (combineMonos ms, noPreds alpha)
                       Right s -> do ms' <- mapM (xformMono s) ms
-                                    ty' <- xformTy s (noPreds alpha)
+                                    ty' <- xformTy s calpha
                                     return $ (combineMonos ms', ty')
                                   
     where monoeqs = do tyvarmap <- liftM Map.fromList $ mapM (\ var -> do tv <- mkTv; return (var, tv)) varnames
@@ -243,8 +243,8 @@ unify c ms tys = do eqs <- monoeqs
                     distinct = Set.toList . Set.fromList
                                
           vars = concat $ map monoVars ms
-          ctxt = concatMap ctyLPreds $ (map snd vars) ++ tys
+          monolpreds = concatMap (ctyLPreds . snd) vars
                      
           xformMono s m = mapMonoM (xformTy s) m
           xformTy s ty = resolvePreds c ty'
-              where ty' = substCTy s (ty, ctxt)
+              where ty' = substCTy s (ty, monolpreds)
