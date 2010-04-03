@@ -15,10 +15,11 @@ mkCanonizedType ty lpreds = CanonizedType { ctyTy = ty, ctyLPreds = lpreds}
 noPreds :: HsType Name -> CanonizedType
 noPreds ty = mkCanonizedType ty []
                  
---- Utility                                                      
-tyCurryCon :: [TanType] -> TanType -- TODO: CanonizedType
-tyCurryCon [ty]     = ty
-tyCurryCon (ty:tys) = HsAppTy (noLoc ty) (noLoc $ tyCurryCon tys)
+--- Utility
+tyCurryCon :: [CanonizedType] -> CanonizedType
+tyCurryCon ctys = mkCanonizedType (tyCurryCon' $ map ctyTy ctys) (concatMap ctyLPreds ctys)
+    where tyCurryCon' [ty] = ty
+          tyCurryCon' (ty:tys) = HsAppTy (noLoc ty) (noLoc $ tyCurryCon' tys)
 
 tyCurryFun :: [CanonizedType] -> CanonizedType
 tyCurryFun [cty]      = cty
@@ -63,7 +64,7 @@ typeOfLit (HsInt _)    = tyInt
 typeOfLit (HsChar _)   = tyChar
 typeOfLit (HsString _) = tyString
 
-tyVarsOf :: TanType -> Set.Set TvName
+tyVarsOf :: HsType Name -> Set.Set TvName
 tyVarsOf ty                               | isTyCon ty = Set.empty
 tyVarsOf (HsTyVar name)                                = Set.singleton name
 tyVarsOf (HsFunTy (L _ left) (L _ right))              = (tyVarsOf left) `Set.union` (tyVarsOf right)
@@ -74,6 +75,9 @@ tyVarsOf (HsForAllTy _ _ _ (L _ ty))                   = tyVarsOf ty
 tyVarsOf (HsBangTy _ (L _ ty))                         = tyVarsOf ty
 tyVarsOf (HsParTy (L _ ty))                            = tyVarsOf ty
 
+tyVarsOfPred :: HsPred Name -> Set.Set TvName
+tyVarsOfPred (HsClassP cls [lty]) = tyVarsOf $ unLoc lty
+                                                         
 --- Occurs checking                                                         
 occurs :: TvName -> TanType -> Bool
 occurs x (HsTyVar y)                      = x == y

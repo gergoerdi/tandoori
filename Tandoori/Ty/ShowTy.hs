@@ -5,13 +5,13 @@ module Tandoori.Ty.ShowTy(showTy, showCTy) where
 import Tandoori.GHC.Internals
 import Tandoori.Ty
 import Tandoori.Ty.Canonize
+
+import Data.List    
     
 data ShowTyCtxt = C { isLeftOfFun :: Bool }                 
-             
-joinWith sep []     = []
-joinWith sep [x]    = x
-joinWith sep (x:xs) = (x ++ sep) ++ (joinWith sep xs)
-             
+
+joinWith sep = concat . intersperse sep
+                
 showFunLeft :: ShowTyCtxt -> HsType Name -> String
 showFunLeft c ty = showTy' c{isLeftOfFun = True} ty
 showFunRight c ty = showTy' c{isLeftOfFun = False} ty
@@ -57,7 +57,6 @@ showName name = occNameString $ nameOccName name
 
 showPreds :: [HsPred Name] -> String
 showPreds [] = ""
-showPreds [pred] = unwords [showPred pred, "=> "]
 showPreds preds = unwords ["(" ++ (joinWith ", " $ map showPred preds) ++ ")", "=> "]
              
 showPred :: HsPred Name -> String

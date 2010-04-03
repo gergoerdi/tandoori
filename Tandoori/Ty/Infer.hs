@@ -65,7 +65,7 @@ typeOfOverLit (OverLit { ol_val = val }) = do alpha <- mkTv
                                                          HsIntegral _ -> numClassName
                                                   lpred = genLoc $ HsClassP tc [genLoc alpha]
                                               return $ mkCanonizedType alpha [lpred]
-                                              return $ tyInt
+                                              return $ tyInt -- Uncomment this to have non-polymorph integer literals
                                                              
 infer' :: Ctxt -> TanExpr -> Stateful (MonoEnv, CanonizedType)
 infer' c (HsLit lit)                       = return $ justType $ typeOfLit lit
@@ -82,7 +82,7 @@ infer' c (ExplicitTuple lexprs _)          = do (ms, ts) <- maptupM (infer c) le
 infer' c (HsApp ltyFun ltyParam)           = do (m1, ty1) <- infer c ltyFun
                                                 (m2, ty2) <- infer c ltyParam
                                                 alpha <- mkCTv
-                                                (m, ty) <- unify c [m1, m2] [ty1, tyCurryFun [ty2, alpha]] -- TODO: CanonizedType: tyCurryFun
+                                                (m, ty) <- unify c [m1, m2] [ty1, tyCurryFun [ty2, alpha]]
                                                 ty' <- resolvePreds c ty
                                                 case ctyTy ty' of
                                                   HsFunTy (L _ ty3) (L _ ty4) -> return (m, mkCanonizedType ty4 (ctyLPreds ty'))
@@ -106,7 +106,7 @@ infer' c (HsVar name) = case getUserDecl c name of
                                                    monotyvars = Set.unions $ map tyVarsOfDef $ Set.toList $ forcedMonoVars c
                                                    tyVarsOfDef n = case getMonoVar m n of
                                                                      Nothing -> Set.empty
-                                                                     Just ty -> tyVarsOf $ uncanonize ty
+                                                                     Just ty -> tyVarsOf $ ctyTy ty
 
                               
 infer' c (HsLet binds lexpr)               = do (ns, c', m') <- inferLocalBinds c binds
@@ -154,17 +154,18 @@ inferBinds c lbinds = do let binds = map unLoc $ bagToList lbinds
                                
     where definePoly m c (name, ty) = case (getUserDecl c name) of
                                         Nothing              -> do ty' <- resolvePreds c ty
-                                                                   return $ addPolyVar c name (m, ty')
-                                        Just (L loc tyDecl)  -> doLoc loc $
-                                                                do ty' <- resolvePreds c ty
-                                                                   case fitDecl (ctyTy tyDecl) (ctyTy ty') of
-                                                                     Left errs         -> do addError $ CantFitDecl tyDecl ty' errs
-                                                                                             return $ c
-                                                                     Right (s, preds)  -> if ensuresPredicates c preds tyDecl'
-                                                                                          then return c
-                                                                                          else do addError $ CantFitDecl tyDecl ty' []
-                                                                                                  return $ c
-                                                                         where tyDecl' = canonize $ substTy s $ uncanonize tyDecl
+                                                                   return $ addPolyVar c name (m, ty')                                        
+                                        Just (L loc tyDecl)  -> doLoc loc $ do
+                                                                  ty' <- resolvePreds c ty
+                                                                  case fitDecl (ctyTy tyDecl) (ctyTy ty') of
+                                                                    Left errs         -> do addError $ CantFitDecl tyDecl ty' errs
+                                                                                            return $ c
+                                                                    Right s  -> if ensuresPredicates c preds tyDecl'
+                                                                                then return c
+                                                                                else do addError $ CantFitDecl tyDecl ty' []
+                                                                                        return $ c
+                                                                        where tyDecl' = substCTy s (tyDecl, [])
+                                                                              preds = map unLoc $ ctyLPreds ty'
                                                                                                
 inferBind :: Ctxt -> (HsBind Name) -> Stateful (Set.Set Name, MonoEnv)
 inferBind c PatBind{pat_lhs = lpat, pat_rhs = grhss} = do (ns, m, t) <- inferPat c (unLoc lpat)
@@ -228,23 +229,22 @@ inferPat c (NPat overlit _ _)                = liftM justTypePat $ typeOfOverLit
 unify :: Ctxt -> [MonoEnv] -> [CanonizedType] -> Stateful (MonoEnv, CanonizedType)
 unify c ms tys = do eqs <- monoeqs
                     alpha <- mkTv
-                    let eqs' = map (\ ty -> (alpha, uncanonize ty)) tys
+                    let eqs' = map (\ ty -> (alpha, ctyTy ty)) tys
                     case mgu eqs eqs' of
                       Left errs -> do addError $ UnificationFailed ms errs
                                       return $ (combineMonos ms, noPreds alpha)
-                      Right r -> do ms' <- mapM (xformMono r) ms
-                                    ty' <- xformTy r (noPreds alpha)
+                      Right s -> do ms' <- mapM (xformMono s) ms
+                                    ty' <- xformTy s (noPreds alpha)
                                     return $ (combineMonos ms', ty')
                                   
-    where monoeqs = do let vars = concat $ map monoVars ms
-                           varnames = distinct $ map fst vars
-                       tyvarmap <- liftM Map.fromList $ mapM (\ var -> do tv <- mkTv; return (var, tv)) varnames
-                       return $ map (\ (var, ty) -> (fromJust $ Map.lookup var tyvarmap, uncanonize ty)) vars
-          distinct = Set.toList . Set.fromList
+    where monoeqs = do tyvarmap <- liftM Map.fromList $ mapM (\ var -> do tv <- mkTv; return (var, tv)) varnames
+                       return $ map (\ (var, ty) -> (fromJust $ Map.lookup var tyvarmap, ctyTy ty)) vars
+              where varnames = distinct $ map fst vars
+                    distinct = Set.toList . Set.fromList
+                               
+          vars = concat $ map monoVars ms
+          ctxt = concatMap ctyLPreds $ (map snd vars) ++ tys
                      
-          xformMono r m = mapMonoM (xformTy r) m
-          xformTy (s, preds) ty = resolvePreds c ty''
-              where ty' = canonize $ substTy s $ uncanonize ty -- TODO: What we really want to do is avoid ty' starting with a HsForAllTy
-                    lpreds' = ctyLPreds ty'
-                    lpreds'' = map noLoc preds                    
-                    ty'' = mkCanonizedType (ctyTy ty') (lpreds' ++ lpreds'')
+          xformMono s m = mapMonoM (xformTy s) m
+          xformTy s ty = resolvePreds c ty'
+              where ty' = substCTy s (ty, ctxt)

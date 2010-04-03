@@ -1,4 +1,4 @@
-module Tandoori.Ty.Unify (Substitution, substTy, mgu, fitDecl) where
+module Tandoori.Ty.Unify (Substitution, substCTy, mgu, fitDecl) where
 
 import Tandoori
 import Tandoori.Util
@@ -15,7 +15,6 @@ import Tandoori.Ty.ShowTy
 import Tandoori.Kludge.Show    
     
 newtype Substitution = S (Map.Map TvName TanType)
-type UnificationRes = (Substitution, [HsPred Name])
 
 showSubst :: Substitution -> String
 showSubst (S s) = show s
@@ -23,106 +22,100 @@ showSubst (S s) = show s
 instance Show Substitution where
     show = showSubst
                   
-emptySubst :: UnificationRes
-emptySubst = (S Map.empty, [])
+emptySubst :: Substitution
+emptySubst = S Map.empty
 
 getSubst :: Substitution -> TvName -> Maybe TanType
 getSubst (S m) name = Map.lookup name m
 
-addSubst :: UnificationRes -> TvName -> TanType -> UnificationRes
-addSubst ((S m), preds) name ty = (S $ Map.insert name ty m, preds)
+addSubst :: Substitution -> TvName -> TanType -> Substitution
+addSubst (S m) name ty = S $ Map.insert name ty m
 
-                         
-substLTy :: Substitution -> (Located TanType) -> (Located TanType)
-substLTy s = noLoc . substTy s . unLoc
-                         
-substTy :: Substitution -> TanType -> TanType
-substTy s (HsFunTy lt lt')            = HsFunTy (substLTy s lt) (substLTy s lt')
-substTy s (HsAppTy lt lt')            = HsAppTy (substLTy s lt) (substLTy s lt')
-substTy s ty@(HsTyVar name)           = case getSubst s name of
-                                          Nothing   -> ty
-                                          Just ty'  -> substTy s ty'
-substTy s (HsListTy lt)               = HsListTy $ substLTy s lt
-substTy s (HsTupleTy b lts)           = HsTupleTy b $ map (substLTy s) lts
-                                   
-substTy s (HsParTy lty)               = HsParTy (substLTy s lty)
-substTy s (HsDocTy lty ldoc)          = HsDocTy (substLTy s lty) ldoc
-                                   
-substTy s (HsForAllTy e _ lctxt lty)  = HsForAllTy e noBinder lctxt' lty'
-    where lctxt' = noLoc $ map (substLPred s) $ unLoc lctxt
-          lty' = substLTy s lty
-substTy s (HsBangTy _ _)              = error "substTy: TODO: Bang"
-substTy s (HsPArrTy _)                = error "substTy: TODO: PArrTy"
-substTy s (HsKindSig _ _)             = error "substTy: TODO: KindSig"
-substTy s (HsNumTy _)                 = error "substTy: TODO: NumTy"
-substTy s (HsOpTy _ _ _)              = error "substTy: TODO: OpTy"
-substTy s (HsSpliceTy _)              = error "substTy: TODO: Splice"
-substTy s (HsPredTy _ )               = error "substTy: TODO: Pred"
+data SubstRes a = SubstRes (Set.Set TvName) a
 
+instance (Monad SubstRes) where
+    (SubstRes tvs x) >>= f = SubstRes (tvs `Set.union` tvs') y
+        where SubstRes tvs' y = f x
+    return x = SubstRes Set.empty x
+                
+seenTyVar :: Name -> SubstRes ()
+seenTyVar tv = SubstRes (Set.singleton tv) ()
+
+getSubsted :: SubstRes a -> a
+getSubsted (SubstRes tvs x) = x
+                
+substTy :: Substitution -> (HsType Name) -> SubstRes (HsType Name)
+substTy s ty@(HsTyVar name)    = do seenTyVar name
+                                    case getSubst s name of
+                                      Nothing -> return ty
+                                      Just ty' -> substTy s ty'
+substTy s (HsFunTy ltyL ltyR)  = do ltyL' <- substLTy s ltyL
+                                    ltyR' <- substLTy s ltyR
+                                    return $ HsFunTy ltyL' ltyR'
+substTy s (HsAppTy ltyL ltyR)  = do ltyL' <- substLTy s ltyL
+                                    ltyR' <- substLTy s ltyR
+                                    return $ HsFunTy ltyL' ltyR'
+substTy s (HsListTy lty)       = liftM HsListTy $ substLTy s lty
+substTy s (HsTupleTy b ltys)   = liftM (HsTupleTy b) $ mapM (substLTy s) ltys                                   
+substTy s (HsParTy lty)        = liftM HsParTy $ substLTy s lty
+                                           
+                         
+substLTy :: Substitution -> (Located (HsType Name)) -> SubstRes (Located (HsType Name))
+substLTy s lty = do ty' <- substTy s (unLoc lty)
+                    return $ noLoc ty'
+                         
+substCTy :: Substitution -> (CanonizedType, HsContext Name) -> CanonizedType
+substCTy s (cty, ctxt) = mkCanonizedType ty' ctxt''
+    where SubstRes tvs ty' = substTy s ty
+          ctxtInEffect = (map (substLPred s) $ ctyLPreds cty) ++ (filter hasRelevantTyVars ctxt')
+          ctxt' = map (substLPred s) ctxt
+          ty = ctyTy cty
+          ctxt'' = map (substLPred s) ctxtInEffect
+          hasRelevantTyVars lpred = any (\ tv -> tv `Set.member` tvs) $ Set.toList $ tyVarsOfPred (unLoc lpred)
+                                        
 substLPred :: Substitution -> LHsPred Name -> LHsPred Name
 substLPred s = noLoc . substPred s . unLoc
                                  
 substPred :: Substitution -> HsPred Name -> HsPred Name
-substPred s (HsClassP cls [lty]) = HsClassP cls [substLTy s lty]
+substPred s (HsClassP cls [lty]) = HsClassP cls [getSubsted $ substLTy s lty]
 
 type TyEq = (TanType, TanType)
 type TyEqProblem = (Bool, TyEq)
     
-fitDecl :: TanType -> TanType -> Either [TyEq] UnificationRes
-fitDecl tyDecl ty = mgu' True [(True, (ty, tyDecl))] -- TODO: Call ensurePredicates here
+fitDecl :: TanType -> TanType -> Either [TyEq] Substitution
+fitDecl tyDecl ty = mgu' True [(ty, tyDecl)] -- TODO: Call ensurePredicates here
                                                   
-mgu :: [TyEq] -> [TyEq] -> Either [TyEq] UnificationRes
-mgu eqs eqsCollect = mgu' False $ (map (\ eq -> (False, eq)) eqs) ++ (map (\ eq -> (True, eq)) eqsCollect)
+mgu :: [TyEq] -> [TyEq] -> Either [TyEq] Substitution
+mgu eqs eqsCollect = mgu' False $ eqs ++ eqsCollect
 
-justSubst :: Substitution -> UnificationRes
-justSubst s = (s, [])
-
-addPred :: Bool -> UnificationRes -> [HsPred Name] -> UnificationRes 
-addPred True   (s, preds)  preds'  = (s, preds ++ preds') 
-addPred False  r           _       = r
-
-
-mgu' :: Bool -> [TyEqProblem] -> Either [TyEq] UnificationRes
-mgu' leftOnly []                                                                                             = Right $ emptySubst
-mgu' leftOnly ((c, (HsParTy (L _ ty),               ty'))                             :eqs)                  = mgu' leftOnly $ (c, (ty, ty')):eqs
-mgu' leftOnly ((c, (ty,                             HsParTy (L _ ty')))               :eqs)                  = mgu' leftOnly $ (c, (ty, ty')):eqs
+mgu' :: Bool -> [TyEq] -> Either [TyEq] Substitution
+mgu' leftOnly []                                                                                        = Right $ emptySubst
+mgu' leftOnly ((HsParTy (L _ ty),               ty')                             :eqs)                  = mgu' leftOnly $ (ty, ty'):eqs
+mgu' leftOnly ((ty,                             HsParTy (L _ ty'))               :eqs)                  = mgu' leftOnly $ (ty, ty'):eqs
                                                                                     
-mgu' leftOnly ((c, (HsTyVar x,                      HsTyVar y))                       :eqs) | x == y         = mgu' leftOnly eqs
-mgu' leftOnly ((c, (ty,                             ty'))                             :eqs) | isTyCon ty &&
-                                                                                              isTyCon ty'    = combineErrors (ty, ty') (mgu' leftOnly eqs)
-mgu' leftOnly ((c, (ty@(HsTyVar x),                 HsForAllTy _ _ lctxt (L _ ty')))  :eqs)                  = case mgu' leftOnly ((c, (ty, ty')):eqs) of
-                                                                                                                 Left errs           -> Left errs
-                                                                                                                 Right r@(s, preds)  -> Right $ addPred c r preds'
-                                                                                                                     where preds' = map (unLoc . (substLPred s)) (unLoc lctxt)
-mgu' leftOnly ((c, (ty@(HsTyVar x),                 ty'))                             :eqs) | not(isTyCon ty)  = if occurs x ty'
-                                                                                                               then combineErrors (ty, ty') (mgu' leftOnly eqs)
-                                                                                                               else case mgu' leftOnly eqs' of
-                                                                                                                      Left errs -> Left errs
-                                                                                                                      Right r   -> Right $ addSubst r x ty'
-    where eqs' = map (\ (c, (t, t')) -> (c, (subst t, subst t'))) eqs
-          subst = substTy (fst $ addSubst emptySubst x ty')
-mgu' leftOnly ((c, (ty,                             ty'@(HsTyVar _)))                 :eqs) | not leftOnly     = mgu' leftOnly $ (c, (ty', ty)):eqs
-mgu' leftOnly ((c, (HsFunTy (L _ ty) (L _ u),       HsFunTy (L _ ty') (L _ u')))      :eqs)                  = mgu' leftOnly $ (c, (ty, ty')):(c, (u, u')):eqs
-mgu' leftOnly ((c, (HsAppTy (L _ ty) (L _ u),       HsAppTy (L _ ty') (L _ u')))      :eqs)                  = mgu' leftOnly $ (c, (ty, ty')):(c, (u, u')):eqs
-mgu' leftOnly ((c, (HsTupleTy _ ltys,               HsTupleTy _ ltys'))               :eqs)                  = mgu' leftOnly $ (map (\ eq -> (c, eq)) eqs') ++ eqs
-    where eqs' = zip (map unLoc ltys) (map unLoc ltys')
-mgu' leftOnly ((c, (HsListTy (L _ ty),              HsListTy (L _ ty')))              :eqs)                  = mgu' leftOnly $ (c, (ty, ty')):eqs
-
-mgu' leftOnly ((c, (HsBangTy _ (L _ ty),            ty'))                             :eqs)                  = mgu' leftOnly $ (c, (ty, ty')):eqs
-mgu' leftOnly ((c, (ty,                             HsBangTy _ (L _ ty')))            :eqs)                  = mgu' leftOnly $ (c, (ty, ty')):eqs
-
-mgu' leftOnly ((c, (HsForAllTy _ _ lctxt (L _ ty),  ty'))                             :eqs)                  = case mgu' leftOnly $ (c, (ty, ty')):eqs of
+mgu' leftOnly ((HsTyVar x,                      HsTyVar y)                       :eqs) | x == y         = mgu' leftOnly eqs
+mgu' leftOnly ((ty,                             ty')                             :eqs) | isTyCon ty &&
+                                                                                         isTyCon ty'    = combineErrors (ty, ty') (mgu' leftOnly eqs)
+mgu' leftOnly ((ty@(HsTyVar x),                 ty')                             :eqs) | not(isTyCon ty)  = if occurs x ty'
+                                                                                                          then combineErrors (ty, ty') (mgu' leftOnly eqs)
+                                                                                                          else case mgu' leftOnly eqs' of
                                                                                                                  Left errs -> Left errs
-                                                                                                                 Right r@(s, preds) -> Right $ addPred c r preds'
-                                                                                                                     where preds' = map (unLoc . (substLPred s)) (unLoc lctxt)
-mgu' leftOnly ((c, (ty,                             HsForAllTy _ _ lctxt (L _ ty')))  :eqs)                  = case mgu' leftOnly $ (c, (ty, ty')):eqs of
-                                                                                                                 Left errs           -> Left errs
-                                                                                                                 Right r@(s, preds)  -> Right $ addPred c r preds'
-                                                                                                                     where preds' = map (unLoc . (substLPred s)) (unLoc lctxt)
-mgu' leftOnly ((c, (ty,                             ty'))                             :eqs)                  = combineErrors (ty, ty') (mgu' leftOnly eqs)
+                                                                                                                 Right r   -> Right $ addSubst r x ty'
+    where eqs' = map (\ (t, t') -> (subst t, subst t')) eqs
+          subst t = getSubsted $ substTy (addSubst emptySubst x ty') t
+mgu' leftOnly ((ty,                             ty'@(HsTyVar _))                 :eqs) | not leftOnly     = mgu' leftOnly $ (ty', ty):eqs
+mgu' leftOnly ((HsFunTy (L _ ty) (L _ u),       HsFunTy (L _ ty') (L _ u'))      :eqs)                  = mgu' leftOnly $ (ty, ty'):(u, u'):eqs
+mgu' leftOnly ((HsAppTy (L _ ty) (L _ u),       HsAppTy (L _ ty') (L _ u'))      :eqs)                  = mgu' leftOnly $ (ty, ty'):(u, u'):eqs
+mgu' leftOnly ((HsTupleTy _ ltys,               HsTupleTy _ ltys')               :eqs)                  = mgu' leftOnly $ eqs' ++ eqs
+    where eqs' = zip (map unLoc ltys) (map unLoc ltys')
+mgu' leftOnly ((HsListTy (L _ ty),              HsListTy (L _ ty'))              :eqs)                  = mgu' leftOnly $ (ty, ty'):eqs
+
+mgu' leftOnly ((HsBangTy _ (L _ ty),            ty')                             :eqs)                  = mgu' leftOnly $ (ty, ty'):eqs
+mgu' leftOnly ((ty,                             HsBangTy _ (L _ ty'))            :eqs)                  = mgu' leftOnly $ (ty, ty'):eqs
+mgu' leftOnly ((ty,                             ty')                             :eqs)                  = combineErrors (ty, ty') (mgu' leftOnly eqs)
 
                                                                                               
-combineErrors :: (TanType, TanType) -> Either [TyEq] UnificationRes -> Either [TyEq] UnificationRes
+combineErrors :: (TanType, TanType) -> Either [TyEq] Substitution -> Either [TyEq] Substitution
 combineErrors typair (Left errs) = Left $ typair:errs
 combineErrors typair (Right _)   = Left $ [typair]
 
