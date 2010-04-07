@@ -94,8 +94,7 @@ infer' c (HsLam (MatchGroup lmatches _))   = do (ms, ts) <- maptupM (inferMatch 
 
 infer' c (HsVar name) = case getUserDecl c name of
                           Just lty  -> do ty' <- instantiateTy (const True) (unLoc lty)
-                                          ty'' <- resolvePreds c ty'
-                                          return $ justType ty''
+                                          return $ justType ty'
                           Nothing   -> case getPolyVar c name of
                                          Nothing -> do alpha <- mkCTv
                                                        return $ name `typedAs` alpha
@@ -143,13 +142,13 @@ inferValBinds c (ValBindsOut recbinds lsigs) = foldM foldBinds (Set.empty, c', e
                                           return (ns `Set.union` ns', c', m'')
                                                
 inferBinds :: Ctxt -> LHsBinds Name -> Stateful (Set.Set Name, Ctxt, MonoEnv)
-inferBinds c lbinds = do let binds = map unLoc $ bagToList lbinds
-                         (nss, ms) <- maptupM (inferBind c) binds
-                         let ns = Set.unions nss
-                         (m, _) <- unify c ms []
-                         let m' = filterMonoVars (\ n t -> not(n `Set.member` ns)) m -- Kill?
-                         c' <- foldM (definePoly m) c $ map (\ n -> (n, fromJust $ getMonoVar m n)) (Set.toList ns)
-                         return (ns, c', m)
+inferBinds c lbindbag = do let lbinds = bagToList lbindbag
+                           (nss, ms) <- maptupM (inferLBind c) lbinds
+                           let ns = Set.unions nss
+                           (m, _) <- unify c ms []
+                           let m' = filterMonoVars (\ n t -> not(n `Set.member` ns)) m -- Kill?
+                           c' <- foldM (definePoly m) c $ map (\ n -> (n, fromJust $ getMonoVar m n)) (Set.toList ns)
+                           return (ns, c', m)
                                
     where definePoly m c (name, ty) = case (getUserDecl c name) of
                                         Nothing              -> do ty' <- resolvePreds c ty
@@ -159,12 +158,16 @@ inferBinds c lbinds = do let binds = map unLoc $ bagToList lbinds
                                                                     Left errs         -> do addError $ CantFitDecl tyDecl ty errs
                                                                                             return $ c
                                                                     Right s  -> do ty' <- resolvePreds c (substCTy s (ty, []))
-                                                                                   let preds = map unLoc $ ctyLPreds ty'
-                                                                                   if ensuresPredicates c preds tyDecl'
+                                                                                   let lpreds = ctyLPreds ty'
+                                                                                   ensuresPreds <- ensuresPredicates c lpreds tyDecl'
+                                                                                   if ensuresPreds
                                                                                      then return c
                                                                                      else do addError $ CantFitDecl tyDecl ty' []
                                                                                              return $ c
                                                                         where tyDecl' = substCTy s (tyDecl, [])
+
+inferLBind :: Ctxt -> (LHsBind Name) -> Stateful (Set.Set Name, MonoEnv)
+inferLBind c lbind = withLSrc lbind $ inferBind c $ unLoc lbind
                                                                                         
 inferBind :: Ctxt -> (HsBind Name) -> Stateful (Set.Set Name, MonoEnv)
 inferBind c PatBind{pat_lhs = lpat, pat_rhs = grhss} = do (ns, m, t) <- inferPat c (unLoc lpat)
@@ -233,8 +236,8 @@ unify c ms tys = do eqs <- monoeqs
                     case mgu eqs eqs' of
                       Left errs -> do addError $ UnificationFailed ms errs
                                       return $ (combineMonos ms, noPreds alpha)
-                      Right s -> do ms' <- mapM (xformMono s) ms
-                                    ty' <- xformTy s calpha
+                      Right s -> do let ms' = map (xformMono s) ms
+                                        ty' = xformTy s calpha
                                     return $ (combineMonos ms', ty')
                                   
     where monoeqs = do tyvarmap <- liftM Map.fromList $ mapM (\ var -> do tv <- mkTv; return (var, tv)) varnames
@@ -245,6 +248,5 @@ unify c ms tys = do eqs <- monoeqs
           vars = concat $ map monoVars ms
           monolpreds = concatMap (ctyLPreds . snd) vars
                      
-          xformMono s m = mapMonoM (xformTy s) m
-          xformTy s ty = resolvePreds c ty'
-              where ty' = substCTy s (ty, monolpreds)
+          xformMono s m = mapMono (xformTy s) m
+          xformTy s ty = substCTy s (ty, monolpreds)

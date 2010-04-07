@@ -45,6 +45,7 @@ getSubsted :: SubstRes a -> a
 getSubsted (SubstRes tvs x) = x
                 
 substTy :: Substitution -> (HsType Name) -> SubstRes (HsType Name)
+substTy s ty | isTyCon ty      = return ty
 substTy s ty@(HsTyVar name)    = do seenTyVar name
                                     case getSubst s name of
                                       Nothing -> return ty

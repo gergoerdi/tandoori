@@ -48,14 +48,14 @@ distinct (x:xs)  | elem x xs  = distinct xs
 
                                 
 ensuresPredicates :: Ctxt
-                  -> [HsPred Name]  -- Predicates which must be ensured by...                     
+                  -> [LHsPred Name]  -- Predicates which must be ensured by...                     
                   -> CanonizedType  -- ... this type declaration
-                  -> Bool
--- ensuresPredicates c []     _    = True
-ensuresPredicates c preds  cty  = preds `isSubsetOf` (map unLoc preds')
-    where lpreds = ctyLPreds cty
-          preds' = flattenPredsIn c lpreds
-          xs `isSubsetOf` ys = all (flip elem ys) xs
+                  -> Stateful Bool
+-- ensuresPredicates c lpreds  cty = trace (unlines [show predsOut, show predsIn]) $ predsOut `isSubsetOf` predsIn
+ensuresPredicates c lpreds  cty = do predsIn <- liftM (map unLoc) $ return $ flattenPredsIn c (ctyLPreds cty)
+                                     predsOut <- liftM (map unLoc) $ flattenPredsOut c lpreds
+                                     return $ predsOut `isSubsetOf` predsIn
+    where xs `isSubsetOf` ys = all (flip elem ys) xs
 
 flattenPredsIn :: Ctxt -> [LHsPred Name] -> [LHsPred Name]
 flattenPredsIn c preds = distinct $ concat $ map (flattenPredIn c) preds
@@ -70,24 +70,28 @@ flattenPredIn c (L loc (HsClassP cls [lty])) = (L loc (HsClassP cls [lty'])):lpr
           lty' = noLoc $ ctyTy cty
                           
 resolvePreds :: Ctxt -> CanonizedType -> Stateful CanonizedType
-resolvePreds c cty = do lpreds'' <- filterOccurs
+resolvePreds c cty = do lpreds' <- flattenPredsOut c lpreds
+                        lpreds'' <- filterM (checkPred . unLoc) lpreds'
                         return $ mkCanonizedType ty lpreds''
     where ty = ctyTy cty
           lpreds = ctyLPreds cty
-          lpreds' = flattenPredsOut lpreds
-          filterOccurs = filterM (checkPred . unLoc) lpreds'
           checkPred pred = if not (occursInTy pred)
                            then do addError $ AmbiguousPredicate ty pred
-                                   return False
+                                   return True
                            else return True
           occursInTy (HsClassP cls [lty]) = any (flip occurs ty) $ Set.toList $ tyVarsOf $ unLoc lty
                                             
-flattenPredsOut :: [LHsPred Name] -> [LHsPred Name]
-flattenPredsOut lpreds = distinct $ concat $ map flattenPredOut lpreds
+flattenPredsOut :: Ctxt -> [LHsPred Name] -> Stateful [LHsPred Name]
+flattenPredsOut c lpreds = liftM (distinct . concat) $ mapM (flattenPredOut c) lpreds
     
-flattenPredOut :: LHsPred Name -> [LHsPred Name]
-flattenPredOut (L loc (HsClassP cls [lty])) = (L loc (HsClassP cls [lty'])):lpreds
-    where cty = canonize $ unLoc lty
+flattenPredOut :: Ctxt -> LHsPred Name -> Stateful [LHsPred Name]
+flattenPredOut c (L loc (HsClassP cls [lty])) = return $ lpreds'
+    where lpreds' = filter (\ (L _ (HsClassP cls [lty])) -> hasTyVars (unLoc lty)) (lpred:lpreds)
           lpreds = ctyLPreds cty
+          lpred = L loc $ HsClassP cls [lty']
           lty' = noLoc $ ctyTy cty
+          cty = canonize $ unLoc lty
+                
+          hasTyVars ty = True
+          hasTyVars ty = not $ Set.null $ tyVarsOf ty
                           

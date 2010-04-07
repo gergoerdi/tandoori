@@ -1,4 +1,4 @@
-module Tandoori.State (Stateful, StatefulT, mkState, mkTv, addError, getErrors, withLoc, withSrc) where
+module Tandoori.State (Stateful, StatefulT, mkState, mkTv, addError, getErrors, withLoc, withSrc, withLSrc) where
 
 import Tandoori
 import Tandoori.Errors
@@ -73,7 +73,10 @@ withSrc src m = do src' <- getSrc
                    result <- m
                    restoreSrc src'
                    return result
-                            
+
+withLSrc :: Outputable e => Located e -> Stateful a -> Stateful a
+withLSrc (L loc src) m = withLoc loc $ withSrc src $ m
+                          
 -- setExpr :: Maybe (HsExpr Name) -> Stateful ()
 -- setExpr expr = do state <- get
 --                   put state{expr = expr}

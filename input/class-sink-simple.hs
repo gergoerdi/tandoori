@@ -1,7 +1,8 @@
-sink :: Eq a => a -> Bool
-sink _ = undefined
+class Show a where
+    show :: a -> String
 
-testInherit :: Eq a => a         
-testInherit = undefined
+class Read a where
+    read :: String -> a
 
-testSink = sink testInherit
+readShow x = read (show x)
+showRead s = show (read s)
