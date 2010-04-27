@@ -1,6 +1,6 @@
 {-# LANGUAGE ExistentialQuantification #-}
 
-module Tandoori.Errors (ErrorLocation(..), ErrorSource(..), ErrorMessage(..), ErrorContent(..)) where
+module Tandoori.Errors (ErrorLocation(..), ErrorSource(..), ErrorMessage(..), ErrorContent(..), TyEq(..)) where
 
 import Tandoori
 import Tandoori.Ty
@@ -12,6 +12,11 @@ import Tandoori.Ty.ShowTy
     
 import Data.Maybe
 
+data TyEq = HsType Name :=: HsType Name
+
+instance (Show TyEq) where
+    show (t :=: t') = unwords [(showTy t), ":=:", showTy t']
+    
 data ErrorSource = forall src. Outputable src => ErrorSource src                                  
 data ErrorLocation = ErrorLocation SrcSpan (Maybe ErrorSource)
 data ErrorMessage = ErrorMessage ErrorLocation ErrorContent
@@ -31,21 +36,18 @@ instance Outputable ErrorMessage where
 data ErrorContent = OtherMessage String
                   | UndefinedCon ConName
                   | UndefinedVar VarName
-                  | UnificationFailed [MonoEnv] [(TanType, TanType)]
-                  | CantFitDecl CanonizedType CanonizedType [(TanType, TanType)]
+                  | UnificationFailed [MonoEnv] [TyEq]
+                  | CantFitDecl CanonizedType CanonizedType [TyEq]
                   | AmbiguousPredicate (HsType Name) (HsPred Name)
 
-showFailedEqs sep typairs = unwords $ map (\ (t1, t2) -> unwords [show t1, sep, show t2]) typairs
+showFailedEqs sep tyeqs = unwords $ map (\ (t1 :=: t2) -> unwords [show t1, sep, show t2]) tyeqs
 
 instance Outputable ErrorContent where
     ppr (UndefinedCon name)              = text "Reference to undefined constructor" <+> ppr name
     ppr (UndefinedVar name)              = text "Reference to undefined variable" <+> ppr name
-    ppr (UnificationFailed ms typairs)   = text "Cannot unify" <+> text (showFailedEqs "with" typairs')
-        where typairs' = runPretty $ mapM prettyTyPairM typairs
-              prettyTyPairM (t, u) = do t' <- prettyTyM t
-                                        u' <- prettyTyM u
-                                        return (t', u')
-    ppr (CantFitDecl tyDecl ty typairs)  = text "Declared type" <+> text (show tyDecl') <+> text "is not a special case of inferred type" <+> text (show ty')
+    ppr (UnificationFailed ms tyeqs)     = text "Cannot unify" <+> text (showFailedEqs "with" tyeqs')
+        where tyeqs' = runPretty $ mapM prettyTyEqM tyeqs
+    ppr (CantFitDecl tyDecl ty tyeqs)    = text "Declared type" <+> text (show tyDecl') <+> text "is not a special case of inferred type" <+> text (show ty')
         where (tyDecl', ty') = runPretty $ do tyDecl' <- prettyTyM $ uncanonize tyDecl
                                               ty' <- prettyTyM $ uncanonize ty
                                               return (tyDecl', ty')
@@ -60,13 +62,14 @@ instance Outputable ErrorContent where
 instance Show ErrorContent where
     show (UndefinedCon name)             = unwords ["Reference to undefined constructor", showSDoc $ ppr name]
     show (UndefinedVar name)             = unwords ["Reference to undefined variable", showSDoc $ ppr name]
-    show (UnificationFailed ms typairs)  = unwords ["Cannot unify", showFailedEqs "with" typairs'] -- ++  "\n" ++ (unwords $ map show ms)
-        where typairs' = runPretty $ mapM prettyTyPairM typairs
-              prettyTyPairM (t, u) = do t' <- prettyTyM t
-                                        u' <- prettyTyM u
-                                        return (t', u')
+    show (UnificationFailed ms tyeqs)    = unwords ["Cannot unify", showFailedEqs "with" typairs'] -- ++  "\n" ++ (unwords $ map show ms)
+        where typairs' = runPretty $ mapM prettyTyEqM tyeqs
     show (CantFitDecl tyDecl ty typairs) = unwords ["Declared type", show tyDecl', "is not a special case of inferred type", show ty']
         where (tyDecl', ty') = runPretty $ do tyDecl' <- prettyTyM $ uncanonize tyDecl
                                               ty' <- prettyTyM $ uncanonize ty
                                               return (tyDecl', ty')
     show (OtherMessage message)          = message
+
+prettyTyEqM (t :=: u) = do t' <- prettyTyM t
+                           u' <- prettyTyM u
+                           return $ t' :=: u'

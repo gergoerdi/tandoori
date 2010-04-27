@@ -231,7 +231,7 @@ inferPat c (NPat overlit _ _)                = liftM justTypePat $ typeOfOverLit
 unify :: Ctxt -> [MonoEnv] -> [CanonizedType] -> Stateful (MonoEnv, CanonizedType)
 unify c ms tys = do eqs <- monoeqs
                     alpha <- mkTv
-                    let eqs' = map (\ ty -> (alpha, ctyTy ty)) tys
+                    let eqs' = map (\ ty -> (alpha :=: ctyTy ty)) tys
                         calpha = mkCanonizedType alpha (concatMap ctyLPreds tys)
                     case mgu eqs eqs' of
                       Left errs -> do addError $ UnificationFailed ms errs
@@ -240,10 +240,14 @@ unify c ms tys = do eqs <- monoeqs
                                         ty' = xformTy s calpha
                                     return $ (combineMonos ms', ty')
                                   
-    where monoeqs = do tyvarmap <- liftM Map.fromList $ mapM (\ var -> do tv <- mkTv; return (var, tv)) varnames
-                       return $ map (\ (var, ty) -> (fromJust $ Map.lookup var tyvarmap, ctyTy ty)) vars
+    where monoeqs = do tyvarmap <- liftM Map.fromList $ mapM mkVar varnames
+                       let mkEq (var, ty) = (fromJust $ Map.lookup var tyvarmap) :=: ctyTy ty
+                       return $ map mkEq vars
+                              
               where varnames = distinct $ map fst vars
                     distinct = Set.toList . Set.fromList
+                    mkVar var = do tv <- mkTv
+                                   return (var, tv)
                                
           vars = concat $ map monoVars ms
           monolpreds = concatMap (ctyLPreds . snd) vars

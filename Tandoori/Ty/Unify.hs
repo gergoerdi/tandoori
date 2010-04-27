@@ -8,6 +8,7 @@ import Control.Monad.State
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Maybe
+import Tandoori.Errors
 
 import Tandoori.GHC.Internals
 
@@ -82,11 +83,8 @@ substLPred s = noLoc . substPred s . unLoc
 substPred :: Substitution -> HsPred Name -> HsPred Name
 substPred s (HsClassP cls [lty]) = HsClassP cls [getSubsted $ substLTy s lty]
 
-type TyEq = (TanType, TanType)
-type TyEqProblem = (Bool, TyEq)
-    
 fitDecl :: TanType -> TanType -> Either [TyEq] Substitution
-fitDecl tyDecl ty = mgu' True [(ty, tyDecl)] -- TODO: Call ensurePredicates here
+fitDecl tyDecl ty = mgu' True [(ty :=: tyDecl)] -- TODO: Call ensurePredicates here
                                                   
 mgu :: [TyEq] -> [TyEq] -> Either [TyEq] Substitution
 mgu eqs eqsCollect = mgu' False $ eqs ++ eqsCollect
@@ -108,26 +106,26 @@ mguEq (HsTyVar x)                (HsTyVar y)                 | x == y           
 mguEq t                          t'                          | isTyCon t && isTyCon t' = Incongruent
 mguEq t@(HsTyVar x)              t'                          | not(isTyCon t)           = if occurs x t' then OccursFailed else Substitute x t'
 mguEq t                          (HsTyVar _)                                          = Flip Incongruent
-mguEq (HsFunTy (L _ t) (L _ u))  (HsFunTy (L _ t') (L _ u'))                          = Recurse [(t, t'), (u, u')]
-mguEq (HsAppTy (L _ t) (L _ u))  (HsAppTy (L _ t') (L _ u'))                          = Recurse [(t, t'), (u, u')]
-mguEq (HsTupleTy _ ltys)         (HsTupleTy _ ltys')                                  = Recurse (zip tys tys')
+mguEq (HsFunTy (L _ t) (L _ u))  (HsFunTy (L _ t') (L _ u'))                          = Recurse [(t :=: t'), (u :=: u')]
+mguEq (HsAppTy (L _ t) (L _ u))  (HsAppTy (L _ t') (L _ u'))                          = Recurse [(t :=: t'), (u :=: u')]
+mguEq (HsTupleTy _ ltys)         (HsTupleTy _ ltys')                                  = Recurse (zipWith (:=:) tys tys')
     where tys = map unLoc ltys
           tys' = map unLoc ltys'
-mguEq (HsListTy (L _ t))         (HsListTy (L _ t'))                                  = Recurse [(t, t')]
+mguEq (HsListTy (L _ t))         (HsListTy (L _ t'))                                  = Recurse [(t :=: t')]
 mguEq _                          _                                                    = Incongruent
 
 mgu' :: Bool -> [TyEq] -> Either [TyEq] Substitution
-mgu' leftOnly []            = Right emptySubst
-mgu' leftOnly ((t, t'):eqs) = process $ mguEq t t'
+mgu' leftOnly []               = Right emptySubst
+mgu' leftOnly ((t :=: t'):eqs) = process $ mguEq t t'
     where process Skip              = mgu' leftOnly eqs
           process (Recurse eqs')    = mgu' leftOnly (eqs' ++ eqs)
-          process Incongruent       = addError (t, t')
-          process OccursFailed      = addError (t, t')
+          process Incongruent       = addError (t :=: t')
+          process OccursFailed      = addError (t :=: t')
           process (Flip res)        = process $ if leftOnly then res else mguEq t' t
           process (Substitute x t)  = case mgu' leftOnly eqs' of
                                         Left errs -> Left errs
                                         Right s -> Right $ addSubst s x t
-              where eqs' = map (\ (t, t') -> ((subst t), (subst t'))) eqs
+              where eqs' = map (\ (t :=: t') -> ((subst t) :=: (subst t'))) eqs
                         where s = addSubst emptySubst x t
                               subst t = getSubsted $ substTy s t
           addError err = case mgu' leftOnly eqs of
