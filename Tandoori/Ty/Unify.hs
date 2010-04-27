@@ -91,46 +91,51 @@ fitDecl tyDecl ty = mgu' True [(ty, tyDecl)] -- TODO: Call ensurePredicates here
 mgu :: [TyEq] -> [TyEq] -> Either [TyEq] Substitution
 mgu eqs eqsCollect = mgu' False $ eqs ++ eqsCollect
 
+simplifyTy :: HsType Name -> HsType Name
+simplifyTy (HsParTy (L _ ty'))     = simplifyTy ty'
+simplifyTy (HsBangTy _ (L _ ty'))  = simplifyTy ty'
+simplifyTy ty                      = ty
+
+data UnificationRes  = Substitute TvName (HsType Name)
+                     | Skip
+                     | Incongruent
+                     | Flip UnificationRes
+                     | Recurse [TyEq]
+                     | OccursFailed
+                                     
+mguEq :: HsType Name -> HsType Name -> UnificationRes
+mguEq (HsTyVar x)                (HsTyVar y)                 | x == y                 = Skip
+mguEq t                          t'                          | isTyCon t && isTyCon t' = Incongruent
+mguEq t@(HsTyVar x)              t'                          | not(isTyCon t)           = if occurs x t' then OccursFailed else Substitute x t'
+mguEq t                          (HsTyVar _)                                          = Flip Incongruent
+mguEq (HsFunTy (L _ t) (L _ u))  (HsFunTy (L _ t') (L _ u'))                          = Recurse [(t, t'), (u, u')]
+mguEq (HsAppTy (L _ t) (L _ u))  (HsAppTy (L _ t') (L _ u'))                          = Recurse [(t, t'), (u, u')]
+mguEq (HsTupleTy _ ltys)         (HsTupleTy _ ltys')                                  = Recurse (zip tys tys')
+    where tys = map unLoc ltys
+          tys' = map unLoc ltys'
+mguEq (HsListTy (L _ t))         (HsListTy (L _ t'))                                  = Recurse [(t, t')]
+mguEq _                          _                                                    = Incongruent
+
 mgu' :: Bool -> [TyEq] -> Either [TyEq] Substitution
-mgu' leftOnly []                                                                                        = Right $ emptySubst
-mgu' leftOnly ((HsParTy (L _ ty),               ty')                             :eqs)                  = mgu' leftOnly $ (ty, ty'):eqs
-mgu' leftOnly ((ty,                             HsParTy (L _ ty'))               :eqs)                  = mgu' leftOnly $ (ty, ty'):eqs
-                                                                                    
-mgu' leftOnly ((HsTyVar x,                      HsTyVar y)                       :eqs) | x == y         = mgu' leftOnly eqs
-mgu' leftOnly ((ty,                             ty')                             :eqs) | isTyCon ty &&
-                                                                                         isTyCon ty'    = combineErrors (ty, ty') (mgu' leftOnly eqs)
-mgu' leftOnly ((ty@(HsTyVar x),                 ty')                             :eqs) | not(isTyCon ty)  = if occurs x ty'
-                                                                                                          then combineErrors (ty, ty') (mgu' leftOnly eqs)
-                                                                                                          else case mgu' leftOnly eqs' of
-                                                                                                                 Left errs -> Left errs
-                                                                                                                 Right r   -> Right $ addSubst r x ty'
-    where eqs' = map (\ (t, t') -> (subst t, subst t')) eqs
-          subst t = getSubsted $ substTy (addSubst emptySubst x ty') t
-mgu' leftOnly ((ty,                             ty'@(HsTyVar _))                 :eqs) | not leftOnly     = mgu' leftOnly $ (ty', ty):eqs
-mgu' leftOnly ((HsFunTy (L _ ty) (L _ u),       HsFunTy (L _ ty') (L _ u'))      :eqs)                  = mgu' leftOnly $ (ty, ty'):(u, u'):eqs
-mgu' leftOnly ((HsAppTy (L _ ty) (L _ u),       HsAppTy (L _ ty') (L _ u'))      :eqs)                  = mgu' leftOnly $ (ty, ty'):(u, u'):eqs
-mgu' leftOnly ((HsTupleTy _ ltys,               HsTupleTy _ ltys')               :eqs)                  = mgu' leftOnly $ eqs' ++ eqs
-    where eqs' = zip (map unLoc ltys) (map unLoc ltys')
-mgu' leftOnly ((HsListTy (L _ ty),              HsListTy (L _ ty'))              :eqs)                  = mgu' leftOnly $ (ty, ty'):eqs
+mgu' leftOnly []            = Right emptySubst
+mgu' leftOnly ((t, t'):eqs) = process $ mguEq t t'
+    where process Skip              = mgu' leftOnly eqs
+          process (Recurse eqs')    = mgu' leftOnly (eqs' ++ eqs)
+          process Incongruent       = addError (t, t')
+          process OccursFailed      = addError (t, t')
+          process (Flip res)        = process $ if leftOnly then res else mguEq t' t
+          process (Substitute x t)  = case mgu' leftOnly eqs' of
+                                        Left errs -> Left errs
+                                        Right s -> Right $ addSubst s x t
+              where eqs' = map (\ (t, t') -> ((subst t), (subst t'))) eqs
+                        where s = addSubst emptySubst x t
+                              subst t = getSubsted $ substTy s t
+          addError err = case mgu' leftOnly eqs of
+                           Left errs -> Left $ err:errs
+                           Right _   -> Left $ [err]
 
-mgu' leftOnly ((HsBangTy _ (L _ ty),            ty')                             :eqs)                  = mgu' leftOnly $ (ty, ty'):eqs
-mgu' leftOnly ((ty,                             HsBangTy _ (L _ ty'))            :eqs)                  = mgu' leftOnly $ (ty, ty'):eqs
-mgu' leftOnly ((ty,                             ty')                             :eqs)                  = combineErrors (ty, ty') (mgu' leftOnly eqs)
-
-                                                                                              
-combineErrors :: (TanType, TanType) -> Either [TyEq] Substitution -> Either [TyEq] Substitution
-combineErrors typair (Left errs) = Left $ typair:errs
-combineErrors typair (Right _)   = Left $ [typair]
-
-                                   
 explodePreds :: [TvName] -> [LHsPred Name] -> [(TvName, [LHsPred Name])]
 explodePreds tvs lpreds = map explode tvs
     where explode tv = (tv, filter (occursLPred tv) lpreds)
           occursPred tv (HsClassP cls [lty]) = occurs tv (unLoc lty)
           occursLPred tv = occursPred tv . unLoc                           
-
--- testMgu = do tv <- mkTv
---              let ty1 = tyCurryFun [tv, tv]
---                  ty2 = HsForAllTy undefined undefined lctxt (noLoc ty1)
---                  lctxt = noLoc [noLoc $ HsClassP numClassName [noLoc tv]]
---              return $ (ty1, ty2, mgu [(ty1, ty2)])
