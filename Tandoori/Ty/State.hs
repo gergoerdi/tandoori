@@ -1,5 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-module Tandoori.State (Typing, runTyping, mkTv, addError, withLoc, withSrc, withLSrc) where
+module Tandoori.Ty.State (Typing, runTyping, mkTv, addError, withLoc, withSrc, withLSrc) where
 
 import Tandoori
 import Tandoori.Errors

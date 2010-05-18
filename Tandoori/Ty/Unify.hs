@@ -1,19 +1,16 @@
 module Tandoori.Ty.Unify (Substitution, substCTy, mgu, fitDecl) where
 
 import Tandoori
-import Tandoori.Util
-import Tandoori.State    
 import Tandoori.Ty
-import Control.Monad.State
+import Tandoori.Ty.State    
+import Tandoori.Ty.ShowTy    
+import Tandoori.Errors
+import Tandoori.GHC.Internals    
+import Tandoori.Util
+import Control.Monad
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Maybe
-import Tandoori.Errors
-
-import Tandoori.GHC.Internals
-
-import Tandoori.Ty.ShowTy    
-import Tandoori.Kludge.Show    
     
 newtype Substitution = S (Map.Map TvName TanType)
 

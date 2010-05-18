@@ -3,7 +3,7 @@ module Tandoori.Ty.Infer where
 
 import Tandoori
 import Tandoori.Util
-import Tandoori.State    
+import Tandoori.Ty.State    
 import Tandoori.Errors
 import Tandoori.Ty
 import Tandoori.Ty.Canonize

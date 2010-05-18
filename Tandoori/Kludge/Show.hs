@@ -191,14 +191,3 @@ instance (Show (HsBind id)) => (Show (HsValBinds id)) where
 instance (Show ModuleName) where
     show = moduleNameString
                                  
-instance (Show Name) where
-    show = showNameShort
-
-showNameShort qname = show $ occNameString $ nameOccName qname           
-           
-showNameQual qname = show $ modulename ++ "." ++ name ++ "#" ++ uname
-    where name = occNameString $ nameOccName qname
-          modulename = case nameModule_maybe qname of
-                         Nothing -> "?"
-                         Just m  -> moduleNameString $ moduleName m
-          uname = show $ nameUnique qname

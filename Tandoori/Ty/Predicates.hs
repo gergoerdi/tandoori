@@ -5,14 +5,12 @@ import Tandoori
 import Tandoori.Util
 import Tandoori.Ty
 import Tandoori.Ty.Ctxt
-import Tandoori.State
+import Tandoori.Ty.State
 import Tandoori.Errors
 import Tandoori.GHC.Internals
 import Tandoori.Ty.ClassDecl
 import qualified Data.Set as Set
 import Control.Monad
-    
-import Tandoori.Kludge.Show
     
 instance Eq HsBang where
     HsNoBang  ==  HsNoBang  = True

@@ -1,8 +1,8 @@
 module Tandoori.Ty.Instantiate (instantiateTy) where
 
 import Tandoori
-import Tandoori.State
 import Tandoori.Ty
+import Tandoori.Ty.State
 import Tandoori.Ty.Canonize
 import Tandoori.Util
 import Tandoori.GHC.Internals

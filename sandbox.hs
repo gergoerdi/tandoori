@@ -1,10 +1,9 @@
 import Tandoori.GHC    
 import Tandoori.GHC.Parse
 import Tandoori.GHC.Scope
-import Tandoori.Kludge.Show
+-- import Tandoori.Kludge.Show
 
-import Tandoori.State
-import Control.Monad.State (evalState)
+import Tandoori.Ty.State
     
 import GHC    
 import RdrHsSyn
