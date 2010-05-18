@@ -1,102 +1,53 @@
-module Tandoori.State (Stateful, StatefulT, mkState, mkTv, addError, getErrors, withLoc, withSrc, withLSrc) where
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+module Tandoori.State (Typing, runTyping, mkTv, addError, withLoc, withSrc, withLSrc) where
 
 import Tandoori
 import Tandoori.Errors
 
 import Tandoori.GHC.Internals
     
+import Control.Monad.RWS
 import Control.Monad.State
 import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Set as Set
+import Control.Arrow (first, second)
     
-data GlobalState = G { tvcount :: Int,
-                       errors  :: [ErrorMessage],
-                       srcspan :: SrcSpan,
-                       src :: Maybe ErrorSource
-                     }
-                   -- deriving Show
+newtype Typing a = Typing { rws :: RWS (SrcSpan, Maybe ErrorSource) [ErrorMessage] Int a} deriving Monad
 
-mkState = G { tvcount = 0,
-              errors = [],
-              srcspan = noSrcSpan,
-              src = Nothing
-            }
+runTyping :: Typing a -> (a, [ErrorMessage])
+runTyping typing = let (result, _, output) = (runRWS . rws) typing (noSrcSpan, Nothing) 0
+                   in (result, output)                                           
 
-type Stateful a = State GlobalState a
-type StatefulT s t = StateT s (State GlobalState) t
-    
-mkTv :: Stateful TanType
-mkTv = do state@G{tvcount = tvcount} <- get
-          let namestr = 't':(show tvcount)
-              uname = mkAlphaTyVarUnique tvcount
-              name = mkSysTvName uname (mkFastString namestr)
-          put state{ tvcount = tvcount + 1}
-          return (HsTyVar name)
-
-
-                 
-getSpan :: Stateful SrcSpan
-getSpan = do G { srcspan = srcspan } <- get
-             return srcspan
-
-setSpan :: SrcSpan -> Stateful ()
-setSpan srcspan = do state <- get
-                     put state{srcspan = srcspan}
-                   
-withLoc :: SrcSpan -> Stateful a -> Stateful a
-withLoc srcspan' m = do srcspan <- getSpan
-                        setSpan srcspan'
-                        result <- m
-                        setSpan srcspan
-                        return result                  
-
-getSrc :: Stateful (Maybe ErrorSource)
-getSrc = do G { src = src } <- get
-            return src
-
-setSrc :: Outputable e => Maybe e -> Stateful ()
-setSrc Nothing = do state <- get
-                    put state{src = Nothing}
-setSrc (Just src') = do state <- get
-                        put state{src = Just $ ErrorSource src'}
-
-restoreSrc :: Maybe ErrorSource -> Stateful ()
-restoreSrc Nothing = do state <- get
-                        put state{src = Nothing}
-restoreSrc (Just src) = do state <- get
-                           put state{src = Just src}
-                            
-withSrc :: Outputable e => e -> Stateful a -> Stateful a
-withSrc src m = do src' <- getSrc
-                   setSrc (Just src)
-                   result <- m
-                   restoreSrc src'
-                   return result
-
-withLSrc :: Outputable e => Located e -> Stateful a -> Stateful a
-withLSrc (L loc src) m = withLoc loc $ withSrc src $ m
-                          
--- setExpr :: Maybe (HsExpr Name) -> Stateful ()
--- setExpr expr = do state <- get
---                   put state{expr = expr}
+fresh :: Typing Int
+fresh = Typing $ do u <- get
+                    modify succ
+                    return u
                       
--- withExpr :: (HsExpr Name) -> Stateful a -> Stateful a
--- withExpr expr m = do expr' <- getExpr
---                      setExpr (Just expr)
---                      result <- m
---                      setExpr expr'
---                      return result
+mkTv :: Typing TanType
+mkTv = do u <- fresh
+          let namestr = 't':(show u)
+              uname = mkAlphaTyVarUnique u
+              name = mkSysTvName uname (mkFastString namestr)
+          return $ HsTyVar name
+                 
+getSpan :: Typing SrcSpan
+getSpan = Typing $ asks fst
+          
+withLoc :: SrcSpan -> Typing a -> Typing a
+withLoc srcspan = Typing . (local $ first $ const srcspan) . rws
 
-                            
-                          
-addError :: ErrorContent -> Stateful ()
-addError content = do state@G{errors = errors} <- get
-                      span <- getSpan
-                      src <- getSrc
-                      let msg = ErrorMessage (ErrorLocation span src) content
-                      put state{ errors = msg:errors}
+getSrc :: Typing (Maybe ErrorSource)
+getSrc = Typing $ asks snd
 
-getErrors :: Stateful [ErrorMessage]
-getErrors = do G { errors = errors } <- get
-               return errors
+withSrc :: Outputable e => e -> Typing a -> Typing a
+withSrc src = Typing . (local $ second $ const $ Just $ ErrorSource src) . rws
+
+withLSrc :: Outputable e => Located e -> Typing a -> Typing a
+withLSrc (L loc src) = withLoc loc . withSrc src
+
+addError :: ErrorContent -> Typing ()
+addError err = do span <- getSpan
+                  src <- getSrc
+                  let msg = ErrorMessage (ErrorLocation span src) err
+                  Typing $ tell [msg]

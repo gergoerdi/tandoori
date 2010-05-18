@@ -25,7 +25,7 @@ import Bag (bagToList)
 
 mkCTv = liftM noPreds mkTv
     
-tyCon :: Ctxt -> ConName -> Stateful CanonizedType
+tyCon :: Ctxt -> ConName -> Typing CanonizedType
 tyCon c name  | name == dataConName nilDataCon     = do alpha <- mkCTv
                                                         return $ tyList alpha
                                                           
@@ -51,14 +51,14 @@ maptup3M action items = do results <- mapM action items
           snd3 (x, y, z) = y
           trd3 (x, y, z) = z
 
-doLoc :: SrcSpan -> Stateful a -> Stateful a
+doLoc :: SrcSpan -> Typing a -> Typing a
 doLoc srcloc m | isGoodSrcSpan srcloc  = withLoc srcloc $ m
                | otherwise             = m
            
-infer :: Ctxt -> (Located TanExpr) -> Stateful (MonoEnv, CanonizedType)
+infer :: Ctxt -> (Located TanExpr) -> Typing (MonoEnv, CanonizedType)
 infer c (L srcloc expr) = doLoc srcloc $ withSrc expr $ infer' c expr
 
-typeOfOverLit :: HsOverLit Name -> Stateful CanonizedType
+typeOfOverLit :: HsOverLit Name -> Typing CanonizedType
 typeOfOverLit (OverLit { ol_val = HsIsString _ }) = return $ tyString
 typeOfOverLit (OverLit { ol_val = val }) = do alpha <- mkTv
                                               let tc = case val of
@@ -67,7 +67,7 @@ typeOfOverLit (OverLit { ol_val = val }) = do alpha <- mkTv
                                               return $ mkCanonizedType alpha [lpred]
                                               return $ tyInt -- Uncomment this to have non-polymorph integer literals
                                                              
-infer' :: Ctxt -> TanExpr -> Stateful (MonoEnv, CanonizedType)
+infer' :: Ctxt -> TanExpr -> Typing (MonoEnv, CanonizedType)
 infer' c (HsLit lit)                       = return $ justType $ typeOfLit lit
 infer' c (HsOverLit overlit)               = liftM justType $ typeOfOverLit overlit
 infer' c (HsVar name) | isDataConName name = do ty <- tyCon c name
@@ -129,19 +129,19 @@ inferGRhs c (GRHS _ lexpr) = infer c lexpr
 inferGRhss c (GRHSs lgrhss _) = do (ms, ts) <- maptupM (inferGRhs c . unLoc) lgrhss
                                    unify c ms ts
                              
-inferLocalBinds :: Ctxt -> HsLocalBinds Name -> Stateful (Set.Set Name, Ctxt, MonoEnv)
+inferLocalBinds :: Ctxt -> HsLocalBinds Name -> Typing (Set.Set Name, Ctxt, MonoEnv)
 inferLocalBinds c (HsValBinds vb)     = inferValBinds c vb
 inferLocalBinds c (HsIPBinds ipbinds) = error "inferLocalBinds: HsIPBnds"
 inferLocalBinds c EmptyLocalBinds     = return (Set.empty, c, emptyMono)
 
-inferValBinds :: Ctxt -> HsValBinds Name -> Stateful (Set.Set Name, Ctxt, MonoEnv)
+inferValBinds :: Ctxt -> HsValBinds Name -> Typing (Set.Set Name, Ctxt, MonoEnv)
 inferValBinds c (ValBindsOut recbinds lsigs) = foldM foldBinds (Set.empty, c', emptyMono) (map snd recbinds)
     where c' = addUserDecls c lsigs
           foldBinds (ns, c, m) binds = do (ns', c', m') <- inferBinds c binds
                                           (m'', _) <- unify c [m, m'] []
                                           return (ns `Set.union` ns', c', m'')
                                                
-inferBinds :: Ctxt -> LHsBinds Name -> Stateful (Set.Set Name, Ctxt, MonoEnv)
+inferBinds :: Ctxt -> LHsBinds Name -> Typing (Set.Set Name, Ctxt, MonoEnv)
 inferBinds c lbindbag = do let lbinds = bagToList lbindbag
                            (nss, ms) <- maptupM (inferLBind c) lbinds
                            let ns = Set.unions nss
@@ -166,10 +166,10 @@ inferBinds c lbindbag = do let lbinds = bagToList lbindbag
                                                                                              return $ c
                                                                         where tyDecl' = substCTy s (tyDecl, [])
 
-inferLBind :: Ctxt -> (LHsBind Name) -> Stateful (Set.Set Name, MonoEnv)
+inferLBind :: Ctxt -> (LHsBind Name) -> Typing (Set.Set Name, MonoEnv)
 inferLBind c lbind = withLSrc lbind $ inferBind c $ unLoc lbind
                                                                                         
-inferBind :: Ctxt -> (HsBind Name) -> Stateful (Set.Set Name, MonoEnv)
+inferBind :: Ctxt -> (HsBind Name) -> Typing (Set.Set Name, MonoEnv)
 inferBind c PatBind{pat_lhs = lpat, pat_rhs = grhss} = do (ns, m, t) <- inferPat c (unLoc lpat)
                                                           (m', t') <- inferGRhss c grhss
                                                           (m'', _) <- unify c [m, m'] [t, t']
@@ -181,7 +181,7 @@ inferBind c FunBind{fun_matches = MatchGroup lmatches _, fun_id = (L _ name)} = 
                                                                                    return (Set.singleton name, m')
     where inferLMatch (L srcloc match) = doLoc srcloc $ inferMatch c match
                
-inferMatch :: Ctxt -> (Match Name) -> Stateful (MonoEnv, CanonizedType)
+inferMatch :: Ctxt -> (Match Name) -> Typing (MonoEnv, CanonizedType)
 inferMatch c (Match lpats _ grhss) = do (nss, ms, ts) <- maptup3M (inferPat c . unLoc) lpats
                                         let ns = Set.unions nss
                                             c' = forceMonoVars c ns
@@ -196,7 +196,7 @@ justTypePat ty = let (m, t) = justType ty in (Set.empty, m, t)
 typedAsPat :: VarName -> CanonizedType -> (Set.Set VarName, MonoEnv, CanonizedType)
 name `typedAsPat` cty = let (m, t) = name `typedAs` cty in (Set.singleton name, m, t)
                                                
-inferPat :: Ctxt -> TanPat -> Stateful (Set.Set VarName, MonoEnv, CanonizedType)
+inferPat :: Ctxt -> TanPat -> Typing (Set.Set VarName, MonoEnv, CanonizedType)
 inferPat c (AsPat (L _ name) (L _ pat))      = do (ns, m, t) <- inferPat c pat
                                                   let m' = addMonoVar m (name, t)
                                                   return (ns, m', t)
@@ -228,7 +228,7 @@ inferPat c (ListPat lpats _)                 = do (nss, ms, ts) <- maptup3M (inf
 inferPat c (NPat overlit _ _)                = liftM justTypePat $ typeOfOverLit overlit
 
                           
-unify :: Ctxt -> [MonoEnv] -> [CanonizedType] -> Stateful (MonoEnv, CanonizedType)
+unify :: Ctxt -> [MonoEnv] -> [CanonizedType] -> Typing (MonoEnv, CanonizedType)
 unify c ms tys = do eqs <- monoeqs
                     alpha <- mkTv
                     let eqs' = map (\ ty -> (alpha :=: ctyTy ty)) tys

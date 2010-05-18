@@ -50,7 +50,7 @@ distinct (x:xs)  | elem x xs  = distinct xs
 ensuresPredicates :: Ctxt
                   -> [LHsPred Name]  -- Predicates which must be ensured by...                     
                   -> CanonizedType  -- ... this type declaration
-                  -> Stateful Bool
+                  -> Typing Bool
 -- ensuresPredicates c lpreds  cty = trace (unlines [show predsOut, show predsIn]) $ predsOut `isSubsetOf` predsIn
 ensuresPredicates c lpreds  cty = do predsIn <- liftM (map unLoc) $ return $ flattenPredsIn c (ctyLPreds cty)
                                      predsOut <- liftM (map unLoc) $ flattenPredsOut c lpreds
@@ -69,7 +69,7 @@ flattenPredIn c (L loc (HsClassP cls [lty])) = (L loc (HsClassP cls [lty'])):lpr
           toPred cls = noLoc $ HsClassP cls [lty']
           lty' = noLoc $ ctyTy cty
                           
-resolvePreds :: Ctxt -> CanonizedType -> Stateful CanonizedType
+resolvePreds :: Ctxt -> CanonizedType -> Typing CanonizedType
 resolvePreds c cty = do lpreds' <- flattenPredsOut c lpreds
                         lpreds'' <- filterM (checkPred . unLoc) lpreds'
                         return $ mkCanonizedType ty lpreds''
@@ -81,10 +81,10 @@ resolvePreds c cty = do lpreds' <- flattenPredsOut c lpreds
                            else return True
           occursInTy (HsClassP cls [lty]) = any (flip occurs ty) $ Set.toList $ tyVarsOf $ unLoc lty
                                             
-flattenPredsOut :: Ctxt -> [LHsPred Name] -> Stateful [LHsPred Name]
+flattenPredsOut :: Ctxt -> [LHsPred Name] -> Typing [LHsPred Name]
 flattenPredsOut c lpreds = liftM (distinct . concat) $ mapM (flattenPredOut c) lpreds
     
-flattenPredOut :: Ctxt -> LHsPred Name -> Stateful [LHsPred Name]
+flattenPredOut :: Ctxt -> LHsPred Name -> Typing [LHsPred Name]
 flattenPredOut c (L loc (HsClassP cls [lty])) = return $ lpreds'
     where lpreds' = filter (\ (L _ (HsClassP cls [lty])) -> hasTyVars (unLoc lty)) (lpred:lpreds)
           lpreds = ctyLPreds cty
