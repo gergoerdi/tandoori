@@ -30,8 +30,7 @@ mkCTv = liftM noPreds mkTv
     
 tyCon :: ConName -> Typing CanonizedType
 tyCon name  | name == dataConName nilDataCon     = do alpha <- mkCTv
-                                                      return $ tyList alpha
-                                                          
+                                                      return $ tyList alpha                                                          
 tyCon name  | name == dataConName consDataCon    = do alpha <- mkCTv
                                                       return $ tyCurryFun [alpha, tyList alpha, tyList alpha]
                                                                
@@ -48,8 +47,8 @@ doLoc :: SrcSpan -> Typing a -> Typing a
 doLoc srcloc m | isGoodSrcSpan srcloc  = withLoc srcloc $ m
                | otherwise             = m
            
-infer :: Located TanExpr -> Typing (MonoEnv, CanonizedType)
-infer (L srcloc expr) = doLoc srcloc $ withSrc expr $ infer' expr
+inferLExpr :: Located TanExpr -> Typing (MonoEnv, CanonizedType)
+inferLExpr lexpr = withLSrc lexpr $ inferExpr $ unLoc lexpr
 
 typeOfOverLit :: HsOverLit Name -> Typing CanonizedType
 typeOfOverLit (OverLit { ol_val = HsIsString _ }) = return $ tyString
@@ -60,62 +59,59 @@ typeOfOverLit (OverLit { ol_val = val }) = do alpha <- mkTv
                                               return $ mkCanonizedType alpha [lpred]
                                               return $ tyInt -- Comment this out to have non-polymorph integer literals
                                                              
-infer' :: TanExpr -> Typing (MonoEnv, CanonizedType)
-infer' (HsLit lit)                       = return $ justType $ typeOfLit lit
-infer' (HsOverLit overlit)               = liftM justType $ typeOfOverLit overlit
-infer' (HsVar name) | isDataConName name = do ty <- tyCon name
-                                              return $ justType ty
-                                           
-infer' (ExplicitList _ lexprs)           = do (ms, ts) <- liftM unzip $ mapM infer lexprs
-                                              (m, t) <- unify ms ts
-                                              return (m, tyList t)
-infer' (ExplicitTuple lexprs _)          = do (ms, ts) <- liftM unzip $ mapM infer lexprs
-                                              unify ms [tyTuple ts]
-                                                     
-infer' (HsApp ltyFun ltyParam)           = do (m1, ty1) <- infer ltyFun
-                                              (m2, ty2) <- infer ltyParam
-                                              alpha <- mkCTv
-                                              (m, ty) <- unify [m1, m2] [ty1, tyCurryFun [ty2, alpha]]
-                                              case ctyTy ty of
-                                                HsFunTy (L _ ty3) (L _ ty4) -> return (m, mkCanonizedType ty4 (ctyLPreds ty))
-                                                _                           -> do beta <- mkCTv
-                                                                                  return (m, beta)
+inferExpr :: TanExpr -> Typing (MonoEnv, CanonizedType)
+inferExpr (HsLit lit)                       = return $ justType $ typeOfLit lit
+inferExpr (HsOverLit overlit)               = liftM justType $ typeOfOverLit overlit
+inferExpr (HsVar name) | isDataConName name = do ty <- tyCon name
+                                                 return $ justType ty                                           
+inferExpr (ExplicitList _ lexprs)           = do (ms, ts) <- liftM unzip $ mapM inferLExpr lexprs
+                                                 (m, t) <- unify ms ts
+                                                 return (m, tyList t)
+inferExpr (ExplicitTuple lexprs _)          = do (ms, ts) <- liftM unzip $ mapM inferLExpr lexprs
+                                                 unify ms [tyTuple ts]                                                     
+inferExpr (HsApp ltyFun ltyParam)           = do (m1, ty1) <- inferLExpr ltyFun
+                                                 (m2, ty2) <- inferLExpr ltyParam
+                                                 alpha <- mkCTv
+                                                 (m, ty) <- unify [m1, m2] [ty1, tyCurryFun [ty2, alpha]]
+                                                 case ctyTy ty of
+                                                   HsFunTy (L _ ty3) (L _ ty4) -> return (m, mkCanonizedType ty4 (ctyLPreds ty))
+                                                   _                           -> do beta <- mkCTv
+                                                                                     return (m, beta)
                                                                  
-infer' (HsLam (MatchGroup lmatches _))   = do (ms, ts) <- liftM unzip $ mapM inferLMatch lmatches
-                                              unify ms ts
+inferExpr (HsLam (MatchGroup lmatches _))   = do (ms, ts) <- liftM unzip $ mapM inferLMatch lmatches
+                                                 unify ms ts
 
-                    -- TODO: move this to askPolyVar
-infer' (HsVar name) = do decl <- askUserDecl name
-                         case decl of
-                           Just lty  -> do ty' <- instantiateTy (const True) (unLoc lty)
-                                           return $ justType ty'
-                           Nothing   -> do pv <- askPolyVar name
-                                           case pv of
-                                             Nothing -> do alpha <- mkCTv
-                                                           return $ name `typedAs` alpha
-                                             Just (m, t) -> do monovars <- askForcedMonoVars
-                                                               let isPoly tv = not (Set.member tv monotyvars)
-                                                                   monotyvars = Set.unions $ map tyVarsOfDef $ Set.toList $ monovars
-                                                               t' <- instantiateTy isPoly t
-                                                               return (m, t')
-                                                 where 
-                                                       tyVarsOfDef n = case getMonoVar m n of
-                                                                         Nothing -> Set.empty
-                                                                         Just ty -> tyVarsOf $ ctyTy ty
+                    -- TODO: move this to askPolyVar, kill askUserDecl
+inferExpr (HsVar name) = do decl <- askUserDecl name
+                            case decl of
+                              Just lty  -> do ty' <- instantiateTy (const True) (unLoc lty)
+                                              return $ justType ty'
+                              Nothing   -> do pv <- askPolyVar name
+                                              case pv of
+                                                Nothing -> do alpha <- mkCTv
+                                                              return $ name `typedAs` alpha
+                                                Just (m, t) -> do monovars <- askForcedMonoVars
+                                                                  let isPoly tv = not (Set.member tv monotyvars)
+                                                                      monotyvars = Set.unions $ map tyVarsOfDef $ Set.toList $ monovars
+                                                                  t' <- instantiateTy isPoly t
+                                                                  return (m, t')
+                                                    where  tyVarsOfDef n = case getMonoVar m n of
+                                                                             Nothing -> Set.empty
+                                                                             Just ty -> tyVarsOf $ ctyTy ty
                              
-infer' (HsLet binds lexpr)               = inferLocalBinds binds $ infer lexpr
+inferExpr (HsLet binds lexpr)               = inferLocalBinds binds $ inferLExpr lexpr
 
-infer' (OpApp left op fixity right)      = infer' $ HsApp (genLoc $ HsApp op left) right
+inferExpr (OpApp left op fixity right)      = inferExpr $ HsApp (noLoc $ HsApp op left) right
 -- TODO:
-infer' (NegApp expr negfun)              = error "infer': TODO: NegApp"
-infer' (HsPar lexpr)                     = infer lexpr
+inferExpr (NegApp expr negfun)              = error "infer': TODO: NegApp"
+inferExpr (HsPar lexpr)                     = inferLExpr lexpr
 
 --     where inferGuardedRhs (HsGuardedRhs srcloc expr guard) = withLoc srcloc $ do (m, t) <- infer c expr
 --                                                                                  (m', t') <- infer c guard
 --                                                                                  (m'', _) <- unify c [m'] [t', tyBool]
 --                                                                                  unify c [m, m''] [t]
 
-inferGRhs (GRHS _ lexpr) = infer lexpr
+inferGRhs (GRHS _ lexpr) = inferLExpr lexpr
 inferGRhss (GRHSs lgrhss _) = do (ms, ts) <- liftM unzip $ mapM (inferGRhs . unLoc) lgrhss
                                  unify ms ts
 
