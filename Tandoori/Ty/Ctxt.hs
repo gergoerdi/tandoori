@@ -1,4 +1,4 @@
-module Tandoori.Ty.Ctxt (Ctxt(..), mkCtxt, getCon, getPolyVar, addPolyVar, addUserDecls, getUserDecl, removePolyVars, printCtxt, forceMonoVars) where
+module Tandoori.Ty.Ctxt (Ctxt(..), mkCtxt, setCons, setClasses, getCon, getPolyVar, addPolyVars, addUserDecls, getUserDecl, removePolyVars, printCtxt, forceMonoVars) where
 
 import Tandoori
 import Tandoori.Ty
@@ -40,13 +40,18 @@ printCtxt c = do print $ tabTy (rowsDecl ++ rowsInfer)
           rowsInfer = map (uncurry rowFromInfer) $ Map.toList $ polyVars c
           rowsDecl = map (uncurry rowFromDecl) $ map (\ (name, lty) ->  (name, unLoc lty)) $ Map.toList $ userdecls c
 
-mkCtxt :: [(ConName, CanonizedType)] -> ClassInfo -> Ctxt
-mkCtxt cons classinfo = Ctxt { polyVars = Map.empty,
-                               forcedMonoVars = Set.empty,
-                               cons = conmap,
-                               classinfo = classinfo,
-                               userdecls = Map.empty }
-    where conmap = Map.fromList cons
+mkCtxt :: Ctxt
+mkCtxt = Ctxt { polyVars = Map.empty,
+                forcedMonoVars = Set.empty,
+                cons = Map.empty,
+                classinfo = emptyClassInfo,
+                userdecls = Map.empty }
+
+setCons :: [(ConName, CanonizedType)] -> Ctxt -> Ctxt
+setCons cons c = c { cons = Map.fromList cons }
+
+setClasses :: ClassInfo -> Ctxt -> Ctxt
+setClasses classinfo c = c { classinfo = classinfo }
                    
 isCon :: Ctxt -> ConName -> Bool
 isCon c = flip Map.member (cons c)
@@ -57,8 +62,8 @@ getCon c = flip Map.lookup (cons c)
 getPolyVar :: Ctxt -> VarName -> Maybe (MonoEnv, CanonizedType)
 getPolyVar c = flip Map.lookup (polyVars c)
 
-addPolyVar :: Ctxt -> VarName -> (MonoEnv, CanonizedType) -> Ctxt
-addPolyVar c name (m, ty) = c{polyVars = Map.insert name (m, ty) (polyVars c)}
+addPolyVars :: Ctxt -> [(VarName, (MonoEnv, CanonizedType))] -> Ctxt
+addPolyVars c vars = c{polyVars = Map.union (Map.fromList vars) (polyVars c)}
 
 forceMonoVars :: Ctxt -> Set.Set VarName -> Ctxt
 forceMonoVars c ns = c{forcedMonoVars = (forcedMonoVars c) `Set.union` ns}

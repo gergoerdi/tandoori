@@ -45,32 +45,32 @@ distinct (x:xs)  | elem x xs  = distinct xs
 
 
                                 
-ensuresPredicates :: Ctxt
-                  -> [LHsPred Name]  -- Predicates which must be ensured by...                     
-                  -> CanonizedType  -- ... this type declaration
-                  -> Typing Bool
--- ensuresPredicates c lpreds  cty = trace (unlines [show predsOut, show predsIn]) $ predsOut `isSubsetOf` predsIn
-ensuresPredicates c lpreds  cty = do predsIn <- liftM (map unLoc) $ return $ flattenPredsIn c (ctyLPreds cty)
-                                     predsOut <- liftM (map unLoc) $ flattenPredsOut c lpreds
-                                     return $ predsOut `isSubsetOf` predsIn
+ensuresPredicates :: [LHsPred Name]    -- Predicates which must be ensured by...                     
+                     -> CanonizedType  -- ... this type declaration
+                     -> Typing Bool
+-- ensuresPredicates lpreds  cty = trace (unlines [show predsOut, show predsIn]) $ predsOut `isSubsetOf` predsIn
+ensuresPredicates lpreds  cty = do predsIn <- liftM (map unLoc) $ flattenPredsIn (ctyLPreds cty)
+                                   predsOut <- liftM (map unLoc) $ flattenPredsOut lpreds
+                                   return $ predsOut `isSubsetOf` predsIn
     where xs `isSubsetOf` ys = all (flip elem ys) xs
 
-flattenPredsIn :: Ctxt -> [LHsPred Name] -> [LHsPred Name]
-flattenPredsIn c preds = distinct $ concat $ map (flattenPredIn c) preds
+flattenPredsIn :: [LHsPred Name] -> Typing [LHsPred Name]
+flattenPredsIn preds = liftM (distinct . concat) $ mapM flattenPredIn preds
                         
-flattenPredIn :: Ctxt -> LHsPred Name -> [LHsPred Name]
-flattenPredIn c (L loc (HsClassP cls [lty])) = (L loc (HsClassP cls [lty'])):lpreds'
+flattenPredIn :: LHsPred Name -> Typing [LHsPred Name]
+flattenPredIn (L loc (HsClassP cls [lty])) = do classinfo <- askClassInfo
+                                                let baseClss = baseClassesOf classinfo cls                                                    
+                                                lpreds' <- flattenPredsIn (map toPred baseClss ++ lpreds)                                                
+                                                return $ (L loc (HsClassP cls [lty'])):lpreds'
     where cty = canonize $ unLoc lty
           lpreds = ctyLPreds cty
-          lpreds' = flattenPredsIn c (map toPred baseClss ++ lpreds)
-          baseClss = baseClassesOf (classinfo c) cls
           toPred cls = noLoc $ HsClassP cls [lty']
           lty' = noLoc $ ctyTy cty
                           
-resolvePreds :: Ctxt -> CanonizedType -> Typing CanonizedType
-resolvePreds c cty = do lpreds' <- flattenPredsOut c lpreds
-                        lpreds'' <- filterM (checkPred . unLoc) lpreds'
-                        return $ mkCanonizedType ty lpreds''
+resolvePreds :: CanonizedType -> Typing CanonizedType
+resolvePreds cty = do lpreds' <- flattenPredsOut lpreds
+                      lpreds'' <- filterM (checkPred . unLoc) lpreds'
+                      return $ mkCanonizedType ty lpreds''
     where ty = ctyTy cty
           lpreds = ctyLPreds cty
           checkPred pred = if not (occursInTy pred)
@@ -79,11 +79,11 @@ resolvePreds c cty = do lpreds' <- flattenPredsOut c lpreds
                            else return True
           occursInTy (HsClassP cls [lty]) = any (flip occurs ty) $ Set.toList $ tyVarsOf $ unLoc lty
                                             
-flattenPredsOut :: Ctxt -> [LHsPred Name] -> Typing [LHsPred Name]
-flattenPredsOut c lpreds = liftM (distinct . concat) $ mapM (flattenPredOut c) lpreds
+flattenPredsOut :: [LHsPred Name] -> Typing [LHsPred Name]
+flattenPredsOut lpreds = liftM (distinct . concat) $ mapM flattenPredOut lpreds
     
-flattenPredOut :: Ctxt -> LHsPred Name -> Typing [LHsPred Name]
-flattenPredOut c (L loc (HsClassP cls [lty])) = return $ lpreds'
+flattenPredOut :: LHsPred Name -> Typing [LHsPred Name]
+flattenPredOut (L loc (HsClassP cls [lty])) = return $ lpreds'
     where lpreds' = filter (\ (L _ (HsClassP cls [lty])) -> hasTyVars (unLoc lty)) (lpred:lpreds)
           lpreds = ctyLPreds cty
           lpred = L loc $ HsClassP cls [lty']

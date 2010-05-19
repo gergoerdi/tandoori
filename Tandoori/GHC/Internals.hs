@@ -13,7 +13,8 @@ module Tandoori.GHC.Internals
      module DataCon,
      module TysWiredIn,
      module PrelNames,
-     module HsDecls) where
+     module HsDecls,
+     module Module) where
 
 import SrcLoc
 import Outputable
@@ -31,3 +32,4 @@ import TysWiredIn (intTyConName, charTyConName, boolTyConName, listTyConName, ni
 import PrelNames (stringTyConName, eqClassName, ordClassName, numClassName, fractionalClassName)
 import HsTypes
 import HsDecls
+import Module

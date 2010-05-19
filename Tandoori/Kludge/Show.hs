@@ -16,7 +16,6 @@ import Outputable
 
 import Tandoori.Ty.Ctxt
 import Tandoori.Ty.MonoEnv
-import Tandoori.Ty.ShowTy
     
 instance Show a => Show (Located a) where
     show lx = "(L " ++ show (unLoc lx) ++ ")"

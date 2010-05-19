@@ -1,7 +1,7 @@
 import Tandoori.GHC    
 import Tandoori.GHC.Parse
 import Tandoori.GHC.Scope
--- import Tandoori.Kludge.Show
+import Tandoori.Kludge.Show
 
 import Tandoori.Ty.State
     
@@ -15,11 +15,14 @@ import System.Environment
 import Tandoori.Ty.Infer
 import Tandoori.Ty.Ctxt
 import Tandoori.Ty
+import Tandoori.Ty.MonoEnv
     
 import Tandoori.Ty.DataType
 import Tandoori.Ty.ClassDecl
 
 import qualified Data.Map as Map
+import Control.Monad.Writer (runWriterT)
+import Control.Monad (liftM)
     
 import IPPrint
 
@@ -39,13 +42,12 @@ typecheckMod mod = runDyn $ do
                          cg = mkClassGraph tydecls
                          classdecls = map funsFromClassDecl $ sortClassDecls cg
                          classinfo = mkClassInfo cg
-                         c = addUserDecls (mkCtxt cons classinfo) (concatMap fst classdecls)
+                         -- c = addUserDecls (mkCtxt cons classinfo) (concatMap fst classdecls)
                              
                      let infer = do
-                              mapM (inferBinds c) $ map snd classdecls
-                              (ns, c', _) <- inferValBinds c $ hs_valds group
-                              return c'
-                     return $ runTyping infer
+                              runWriterT $ mapM_ inferBinds $ map snd classdecls
+                              liftM fst $ inferValBinds (hs_valds group) $ askCtxt
+                     return $ runTyping $ withCons cons $ withClasses classinfo $ infer
 
 main' [src_filename] = do mod <- parseMod src_filename
                           (c, errors) <- typecheckMod mod
@@ -60,6 +62,8 @@ main' _ = error "Usage: tandoori filename.hs"
 main = do args <- getArgs
           main' args
 
+test = main' [src_filename]                
+                
 -- test = do p <- main' ["input/cikk.hs"]
 --           let tyFoo = snd $ snd $ (Map.toList $ polyVars p)!!0
 --               ltyId = snd $ (Map.toList $ userdecls p)!!1

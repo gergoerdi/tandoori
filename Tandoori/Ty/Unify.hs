@@ -53,7 +53,7 @@ substTy s (HsFunTy ltyL ltyR)  = do ltyL' <- substLTy s ltyL
                                     return $ HsFunTy ltyL' ltyR'
 substTy s (HsAppTy ltyL ltyR)  = do ltyL' <- substLTy s ltyL
                                     ltyR' <- substLTy s ltyR
-                                    return $ HsFunTy ltyL' ltyR'
+                                    return $ HsAppTy ltyL' ltyR'
 substTy s (HsListTy lty)       = liftM HsListTy $ substLTy s lty
 substTy s (HsTupleTy b ltys)   = liftM (HsTupleTy b) $ mapM (substLTy s) ltys                                   
 substTy s (HsParTy lty)        = liftM HsParTy $ substLTy s lty
