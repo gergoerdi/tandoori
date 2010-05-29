@@ -1,12 +1,8 @@
 module Tandoori.GHC (runDyn) where
 
-import RdrHsSyn
-import Outputable
-
-import GHC
+import GHC (runGhc, getSessionDynFlags, setSessionDynFlags, defaultErrorHandler)
 import GHC.Paths (libdir)
 import DynFlags (defaultDynFlags)
-import HscMain
     
 runDyn m = defaultErrorHandler defaultDynFlags $ do
              runGhc (Just libdir) $ do

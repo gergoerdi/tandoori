@@ -2,11 +2,11 @@ module Tandoori.GHC.Parse (parseMod, getDecls) where
 
 import Tandoori.GHC.Internals    
     
-import HsSyn   
-import Parser
-import Lexer
-import StringBuffer
-import DynFlags ( defaultDynFlags )    
+import HsSyn (hsmodDecls)
+import Parser (parseModule)
+import Lexer (unP, mkPState, ParseResult(..))
+import StringBuffer (hGetStringBuffer)
+import DynFlags (defaultDynFlags)
     
 getDecls mod = hsmodDecls $ unLoc mod
 

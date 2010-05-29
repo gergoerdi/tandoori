@@ -67,8 +67,10 @@ inferExpr (HsVar name) | isDataConName name = do ty <- tyCon name
 inferExpr (ExplicitList _ lexprs)           = do (ms, ts) <- liftM unzip $ mapM inferLExpr lexprs
                                                  (m, t) <- unify ms ts
                                                  return (m, tyList t)
-inferExpr (ExplicitTuple lexprs _)          = do (ms, ts) <- liftM unzip $ mapM inferLExpr lexprs
-                                                 unify ms [tyTuple ts]                                                     
+inferExpr (ExplicitTuple tupargs _ )        = do (ms, ts) <- liftM unzip $ mapM inferTupArg tupargs
+                                                 unify ms [tyTuple ts]
+    where inferTupArg (Present lexpr) = inferLExpr lexpr                                                                                           
+
 inferExpr (HsApp ltyFun ltyParam)           = do (m1, ty1) <- inferLExpr ltyFun
                                                  (m2, ty2) <- inferLExpr ltyParam
                                                  alpha <- mkCTv
