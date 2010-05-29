@@ -1,4 +1,4 @@
-module Tandoori.Ty.Ctxt (Ctxt(..), mkCtxt, setCons, setClasses, getCon, getPolyVar, addPolyVars, addUserDecls, getUserDecl, removePolyVars, printCtxt, forceMonoVars) where
+module Tandoori.Ty.Ctxt (Ctxt(..), mkCtxt, getPolyVar, addPolyVars, addUserDecls, getUserDecl, removePolyVars, printCtxt) where
 
 import Tandoori
 import Tandoori.Ty
@@ -18,9 +18,6 @@ import qualified Data.Set as Set
 import Data.Maybe
     
 data Ctxt = Ctxt { polyVars :: Map.Map VarName (MonoEnv, CanonizedType),
-                   forcedMonoVars :: Set.Set VarName,
-                   cons :: Map.Map ConName CanonizedType,
-                   classinfo :: ClassInfo,
                    userdecls :: Map.Map VarName (Located CanonizedType) }
              
 printCtxt :: Ctxt -> IO ()             
@@ -42,22 +39,7 @@ printCtxt c = do print $ tabTy (rowsDecl ++ rowsInfer)
 
 mkCtxt :: Ctxt
 mkCtxt = Ctxt { polyVars = Map.empty,
-                forcedMonoVars = Set.empty,
-                cons = Map.empty,
-                classinfo = emptyClassInfo,
                 userdecls = Map.empty }
-
-setCons :: [(ConName, CanonizedType)] -> Ctxt -> Ctxt
-setCons cons c = c { cons = Map.fromList cons }
-
-setClasses :: ClassInfo -> Ctxt -> Ctxt
-setClasses classinfo c = c { classinfo = classinfo }
-                   
-isCon :: Ctxt -> ConName -> Bool
-isCon c = flip Map.member (cons c)
-
-getCon :: Ctxt -> ConName -> Maybe CanonizedType
-getCon c = flip Map.lookup (cons c)
 
 getPolyVar :: Ctxt -> VarName -> Maybe (MonoEnv, CanonizedType)
 getPolyVar c = flip Map.lookup (polyVars c)
@@ -65,9 +47,6 @@ getPolyVar c = flip Map.lookup (polyVars c)
 addPolyVars :: Ctxt -> [(VarName, (MonoEnv, CanonizedType))] -> Ctxt
 addPolyVars c vars = c{polyVars = Map.union (Map.fromList vars) (polyVars c)}
 
-forceMonoVars :: Ctxt -> Set.Set VarName -> Ctxt
-forceMonoVars c ns = c{forcedMonoVars = (forcedMonoVars c) `Set.union` ns}
-                            
 addUserDecls :: Ctxt -> [LSig Name] -> Ctxt
 addUserDecls c sigs = foldl addDecl c sigs
     where addDecl c (L srcloc (TypeSig (L _ name) (L _ ty))) = c {userdecls = Map.insert name (L srcloc $ canonize ty) (userdecls c)}

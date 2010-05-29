@@ -17,9 +17,13 @@ import Tandoori.Ty.MonoEnv
 import Control.Monad.RWS
 import Data.Maybe
 import qualified Data.Set as Set
+import qualified Data.Map as Map
 
 data R = R { loc :: SrcSpan,
              src :: Maybe ErrorSource,
+             monovars :: Set.Set VarName,
+             cons :: Map.Map ConName CanonizedType,
+             classinfo :: ClassInfo,
              ctxt :: Ctxt }
 
 newtype Typing a = Typing { rws :: RWS R [ErrorMessage] Int a} deriving Monad
@@ -29,6 +33,9 @@ runTyping typing = let (result, _, output) = (runRWS . rws) typing r 0
                    in (result, output)
     where r = R { loc = noSrcSpan,
                   src = Nothing,
+                  monovars = mempty,
+                  cons = mempty,
+                  classinfo = emptyClassInfo,
                   ctxt = mkCtxt }
 
 fresh :: Typing Int
@@ -62,28 +69,28 @@ addError err = do loc <- Typing $ asks loc
 
 liftCtxt select = Typing . asks $ select . ctxt                         
                          
-askCtxt = Typing $ asks ctxt
-                 
-askCon = ap (liftCtxt getCon) . return         
+askCtxt = Typing $ asks ctxt                 
+askForcedMonoVars = Typing $ asks monovars
+askCon conname = Typing $ asks (Map.lookup conname . cons)
+askClassInfo = Typing $ asks classinfo
+         
 askUserDecl = ap (liftCtxt getUserDecl) . return
 askPolyVar = ap (liftCtxt getPolyVar) . return
-askForcedMonoVars = liftCtxt forcedMonoVars
-askClassInfo = liftCtxt classinfo
                
 withUserDecls :: [LSig Name] -> Typing a -> Typing a
 withUserDecls sigs = Typing . local add . rws
     where add r@R{ctxt = c} = r{ctxt = addUserDecls c sigs}
 
 withMonoVars :: Set.Set VarName -> Typing a -> Typing a
-withMonoVars ns = Typing . local add . rws
-    where add r@R{ctxt = c} = r{ctxt = forceMonoVars c ns}
+withMonoVars vars = Typing . local add . rws
+    where add r@R{monovars=monovars} = r{monovars = monovars `Set.union` vars}
 
 withPolyVars :: [(VarName, (MonoEnv, CanonizedType))] -> Typing a -> Typing a
 withPolyVars vars = Typing . local add . rws
     where add r@R{ctxt = c} = r{ctxt = addPolyVars c vars}
 
 withCons cons = Typing . local add . rws
-    where add r@R{ctxt = c} = r{ctxt = setCons cons c}
+    where add r = r{cons = Map.fromList cons}
                               
 withClasses classinfo = Typing . local add . rws
-    where add r@R{ctxt = c} = r{ctxt = setClasses classinfo c}
+    where add r = r{classinfo = classinfo}

@@ -91,7 +91,7 @@ inferExpr (HsVar name) = do decl <- askUserDecl name
                                                 Nothing -> do alpha <- mkCTv
                                                               return $ name `typedAs` alpha
                                                 Just (m, t) -> do monovars <- askForcedMonoVars
-                                                                  let isPoly tv = not (Set.member tv monotyvars)
+                                                                  let isPoly tv = not (tv `Set.member` monotyvars)
                                                                       monotyvars = Set.unions $ map tyVarsOfDef $ Set.toList $ monovars
                                                                   t' <- instantiateTy isPoly t
                                                                   return (m, t')
