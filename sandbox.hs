@@ -1,7 +1,9 @@
+module Main where
+
 import Tandoori.GHC    
 import Tandoori.GHC.Parse
 import Tandoori.GHC.Scope
-import Tandoori.Kludge.Show
+-- import Tandoori.Kludge.Show
 
 import Tandoori.Ty.State
     
@@ -42,12 +44,14 @@ typecheckMod mod = runDyn $ do
                          cg = mkClassGraph tydecls
                          classdecls = map funsFromClassDecl $ sortClassDecls cg
                          classinfo = mkClassInfo cg
+                         classfunSigs = concatMap fst classdecls
                          -- c = addUserDecls (mkCtxt cons classinfo) (concatMap fst classdecls)
                              
                      let infer = do
                               runWriterT $ mapM_ inferBinds $ map snd classdecls
                               liftM fst $ inferValBinds (hs_valds group) $ askCtxt
-                     return $ runTyping $ withCons cons $ withClasses classinfo $ infer
+                         withDecls = withCons cons . withClasses classinfo . withUserDecls classfunSigs
+                     return $ runTyping $ withDecls infer
 
 main' [src_filename] = do mod <- parseMod src_filename
                           (c, errors) <- typecheckMod mod
