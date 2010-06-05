@@ -4,10 +4,11 @@ import Tandoori
 import Tandoori.Util
 import Tandoori.Ty
 import Tandoori.GHC.Internals
+import Control.Monad.Writer
 import qualified Data.Set as Set
 
 canonize :: HsType Name -> CanonizedType
-canonize ty = let (ty', lpreds) = collectPredsTy ty
+canonize ty = let (ty', lpreds) = runWriter (collectPredsTy ty)
               in CanonizedType { ctyTy = ty', ctyLPreds = lpreds }
 
 uncanonize :: CanonizedType -> HsType Name
@@ -18,39 +19,23 @@ uncanonize cty = HsForAllTy Implicit noBinder lctxt (genLoc ty)
 addPred :: CanonizedType -> LHsPred Name -> CanonizedType
 addPred cty lpred = CanonizedType { ctyTy = ctyTy cty, ctyLPreds = lpred:ctyLPreds cty }
                  
-combinePreds :: [HsContext Name] -> HsContext Name
-combinePreds [res] = res
-combinePreds (preds:predss) = let preds' = combinePreds predss
-                              in (preds ++ preds')
-                     
-collectPredsLTy :: (Located TanType) -> (Located TanType, [LHsPred Name])
-collectPredsLTy (L srcloc ty) = let (ty', res) = collectPredsTy ty
-                            in (L srcloc ty', res)
+collectPredsLTy :: (Located TanType) -> Writer (HsContext Name) (Located TanType)
+collectPredsLTy (L srcloc ty) = liftM (L srcloc) $ collectPredsTy ty
                                 
-liftCollectPredsTy :: (Located TanType -> TanType) -> Located TanType -> (TanType, HsContext Name)
-liftCollectPredsTy f lty = let (lty', res) = collectPredsLTy lty
-                           in (f lty', res)
-
-collectPredsTy :: TanType -> (TanType, HsContext Name)
-collectPredsTy ty@(HsTyVar tv)            = (ty, [])
-collectPredsTy (HsFunTy lty1 lty2)        = let (lty1', preds1) = collectPredsLTy lty1
-                                                (lty2', preds2) = collectPredsLTy lty2
-                                                res = combinePreds [preds1, preds2]
-                                            in (HsFunTy lty1' lty2', res)
-collectPredsTy (HsAppTy lty1 lty2)        = let (lty1', preds1) = collectPredsLTy lty1
-                                                (lty2', preds2) = collectPredsLTy lty2
-                                                res = combinePreds [preds1, preds2]
-                                            in (HsAppTy lty1' lty2', res)
-collectPredsTy (HsListTy lty)             = liftCollectPredsTy HsListTy lty
-collectPredsTy (HsTupleTy b ltys)         = let (ltys', predss) = unzip $ map collectPredsLTy ltys
-                                                res = combinePreds predss
-                                            in (HsTupleTy b ltys', res)
-collectPredsTy (HsParTy lty)              = let (lty', preds) = collectPredsLTy lty
-                                            in (unLoc lty', preds)
-collectPredsTy (HsDocTy lty ldoc)         = liftCollectPredsTy (flip HsDocTy ldoc) lty
-collectPredsTy (HsBangTy bang lty)        = liftCollectPredsTy (HsBangTy bang) lty
-collectPredsTy (HsForAllTy _ _ lctxt lty) = let (lty', preds') = collectPredsLTy lty
-                                                preds = unLoc lctxt
-                                            in (unLoc lty', combinePreds [preds, preds'])
-collectPredsTy (HsPredTy (HsClassP cls [lty])) = let (lty', preds) = collectPredsLTy lty
-                                                 in (HsPredTy (HsClassP cls [lty']), preds)
+collectPredsTy :: TanType -> Writer (HsContext Name) TanType
+collectPredsTy ty@(HsTyVar _)             = return ty
+collectPredsTy (HsFunTy lty1 lty2)        = do lty1' <- collectPredsLTy lty1
+                                               lty2' <- collectPredsLTy lty2
+                                               return $ HsFunTy lty1' lty2'
+collectPredsTy (HsAppTy lty1 lty2)        = do lty1' <- collectPredsLTy lty1
+                                               lty2' <- collectPredsLTy lty2
+                                               return $ HsAppTy lty1' lty2'
+collectPredsTy (HsListTy lty)             = liftM HsListTy $ collectPredsLTy lty
+collectPredsTy (HsTupleTy b ltys)         = liftM (HsTupleTy b) $ mapM collectPredsLTy ltys
+collectPredsTy (HsParTy lty)              = liftM unLoc $ collectPredsLTy lty
+collectPredsTy (HsDocTy lty ldoc)         = liftM (flip HsDocTy ldoc) $ collectPredsLTy lty
+collectPredsTy (HsBangTy bang lty)        = liftM (HsBangTy bang) $ collectPredsLTy lty
+collectPredsTy (HsForAllTy _ _ lctxt lty) = do tell $ unLoc lctxt
+                                               liftM unLoc $ collectPredsLTy lty
+collectPredsTy (HsPredTy (HsClassP cls [lty])) = do lty' <- collectPredsLTy lty
+                                                    return $ HsPredTy $ HsClassP cls [lty']
