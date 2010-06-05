@@ -81,17 +81,12 @@ resolvePreds cty = do lpreds' <- flattenPredsOut lpreds
 flattenPredsOut :: [LHsPred Name] -> Typing [LHsPred Name]
 flattenPredsOut lpreds = liftM (distinct . concat) $ mapM flattenPredOut lpreds
 
--- flattenPredOut :: LHsPred Name -> Typing [LHsPred Name]
--- flattenPredOut (L loc (HsClassP cls [lty])) = do
---   let lty' = noLoc $ ctyTy cty
---       lpred' = L loc $ HsClassP cls [lty']
---       lpreds' = filter (\ (L _ (HsClassP cls [lty])) -> hasTyVars (unLoc lty)) (lpred':lpreds)
---       return lpreds'         
---     where cty = canonize $ unLoc lty
---           lpreds = ctyLPreds cty
-
---           hasTyVars ty = True
---           hasTyVars ty = not $ Set.null $ tyVarsOf ty
-                          
 flattenPredOut :: LHsPred Name -> Typing [LHsPred Name]
-flattenPredOut lpred = return [lpred]
+flattenPredOut lpred = liftM (map noLoc) $ flatten (unLoc lpred)
+    where flatten :: HsPred Name -> Typing [HsPred Name]
+          flatten pred@(HsClassP _ [(L _ ty)]) | isTyVar ty = return [pred]
+          flatten pred = do directBases <- askBaseInstancesOf pred
+                            case directBases of
+                              Nothing -> do addError $ UnfulfilledPredicate pred
+                                            return []
+                              Just preds -> liftM concat $ mapM flatten $ preds

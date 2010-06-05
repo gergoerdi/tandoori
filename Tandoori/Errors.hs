@@ -39,6 +39,7 @@ data ErrorContent = OtherMessage String
                   | UnificationFailed [MonoEnv] [TyEq]
                   | CantFitDecl CanonizedType CanonizedType [TyEq]
                   | AmbiguousPredicate (HsType Name) (HsPred Name)
+                  | UnfulfilledPredicate (HsPred Name)
 
 showFailedEqs sep tyeqs = unwords $ map (\ (t1 :=: t2) -> unwords [show t1, sep, show t2]) tyeqs
 
@@ -55,6 +56,11 @@ instance Outputable ErrorContent where
         where (ty', pred') = runPretty $ do ty' <- prettyTyM ty
                                             tyPred' <- prettyTyM tyPred
                                             return (ty', HsClassP cls [L loc tyPred'])
+                  where HsClassP cls [ltyPred] = pred
+                        L loc tyPred = ltyPred
+    ppr (UnfulfilledPredicate pred)      = text "Unfulfilled predicate" <+> text (showPred pred')
+        where pred' = runPretty $ do tyPred' <- prettyTyM tyPred
+                                     return $ HsClassP cls [L loc tyPred']
                   where HsClassP cls [ltyPred] = pred
                         L loc tyPred = ltyPred
     ppr (OtherMessage message)           = text message

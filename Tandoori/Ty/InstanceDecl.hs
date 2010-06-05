@@ -19,25 +19,24 @@ data TyConKey = TyConKeyList
 data InstanceDesc = InstanceDesc { cls :: Name, tyCon :: TyConKey }
                   deriving (Eq, Ord)
 
-type InstanceMap = Map.Map InstanceDesc CanonizedType                           
-                           
+type InstanceMap = Map.Map InstanceDesc CanonizedType                               
+
+getInstanceMap :: [LInstDecl Name] -> (HsPred Name -> Maybe [HsPred Name])
+getInstanceMap ldecls = baseInstancesOf $ mkInstanceMap ldecls
+    
 mkInstanceMap :: [LInstDecl Name] -> InstanceMap
 mkInstanceMap ldecls = Map.fromList $ map (toPair . unLoc) ldecls
     where toPair (InstDecl (L _ ty) _ _ _) = (toInstanceDesc pred, cty)
               where cty@(CanonizedType (HsPredTy pred) lpreds) = canonize ty
 
-bases :: InstanceMap -> HsPred Name -> Maybe [HsPred Name]
-bases instmap pred@(HsClassP cls [lty]) = do cty <- Map.lookup desc instmap
-                                             let HsPredTy (HsClassP _ [lty']) = ctyTy cty
-                                                 Right s = mgu [unLoc lty' :=: unLoc lty]
-                                                 cty' = substCTy s (cty, [])
-                                             return $ map unLoc $ ctyLPreds cty'
+baseInstancesOf :: InstanceMap -> HsPred Name -> Maybe [HsPred Name]
+baseInstancesOf instmap pred@(HsClassP cls [lty]) = do cty <- Map.lookup desc instmap
+                                                       let HsPredTy (HsClassP _ [lty']) = ctyTy cty
+                                                           Right s = mgu [unLoc lty' :=: unLoc lty]
+                                                           cty' = substCTy s (cty, [])
+                                                       return $ map unLoc $ ctyLPreds cty'
     where desc = toInstanceDesc pred
 
-baseInstancesOf :: InstanceMap -> HsPred Name -> Maybe [HsPred Name]                 
-baseInstancesOf instmap pred = do directBases <- bases instmap pred
-                                  liftM concat $ mapM (baseInstancesOf instmap) directBases
-                 
 toInstanceDesc :: HsPred Name -> InstanceDesc
 toInstanceDesc (HsClassP cls [lty]) = InstanceDesc cls (getTyConKey $ unLoc lty)
 

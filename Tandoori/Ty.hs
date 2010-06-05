@@ -38,7 +38,11 @@ builtinTyNames = [boolTyConName, intTyConName, charTyConName, listTyConName]
 isTyCon :: HsType Name -> Bool                             
 isTyCon (HsTyVar name) = (isTyConName name) || (elem name builtinTyNames)
 isTyCon _              = False
-                             
+
+isTyVar :: HsType Name -> Bool
+isTyVar ty@(HsTyVar _) = not (isTyCon ty)
+isTyVar _              = False
+                         
 tyBool       = noPreds $ HsTyVar boolTyConName
 tyInt        = noPreds $ HsTyVar intTyConName
 tyChar       = noPreds $ HsTyVar charTyConName

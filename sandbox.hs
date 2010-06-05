@@ -41,9 +41,9 @@ typecheckMod mod = runDyn $ do
                      env <- getSession
                      (limports, ltydecls, group) <- liftIO $ runScope env mod
                      let (methods, _) = getClassInfo ltydecls
-                         instdecls = hs_instds group
-                         instmap = mkInstanceMap instdecls
-                         (L _ (InstDecl (L _ (HsPredTy (HsClassP cls _))) _ _ _)) = instdecls!!2
+                         linstdecls = hs_instds group
+                         instmap = mkInstanceMap linstdecls
+                         (L _ (InstDecl (L _ (HsPredTy (HsClassP cls _))) _ _ _)) = linstdecls!!2
                          --pred = HsClassP cls [noLoc $ HsListTy $ noLoc $ ctyTy tyBool]
                          pred = HsClassP cls [noLoc $ HsListTy $ noLoc $ HsListTy $ noLoc $ ctyTy tyBool]
                          pred' = HsClassP cls [noLoc $ ctyTy tyInt]
@@ -52,13 +52,13 @@ typecheckMod mod = runDyn $ do
                                                                                                  "=",
                                                                                                  show $ baseInstancesOf instmap pred]
                                  
-                     liftIO $ print cls
-                     liftIO $ mapM_ print instdecls
-                     mapM_ printTest [pred, pred']
+                     -- liftIO $ print cls
+                     -- liftIO $ mapM_ print linstdecls
+                     -- mapM_ printTest [pred, pred']
                      let infer = do
                               runWriterT $ mapM_ inferBinds $ map methodImpls methods
                               liftM fst $ inferValBinds (hs_valds group) $ askCtxt
-                     return $ runTyping ltydecls $ infer
+                     return $ runTyping ltydecls linstdecls $ infer
 
 main' [src_filename] = do mod <- parseMod src_filename
                           (c, errors) <- typecheckMod mod

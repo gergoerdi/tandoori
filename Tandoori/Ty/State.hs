@@ -2,7 +2,8 @@
 module Tandoori.Ty.State (Typing, runTyping,
                           mkTv,
                           askCtxt,
-                          askCon, askUserDecl, askBaseClassesOf, askPolyVar, askForcedMonoVars,
+                          askCon, askBaseClassesOf, askBaseInstancesOf,
+                          askUserDecl, askPolyVar, askForcedMonoVars,
                           withUserDecls, withMonoVars, withPolyVars,
                           addError, withLoc, withSrc, withLSrc) where
 
@@ -12,6 +13,7 @@ import Tandoori.GHC.Internals
 import Tandoori.Ty
 import Tandoori.Ty.Canonize
 import Tandoori.Ty.ClassDecl
+import Tandoori.Ty.InstanceDecl    
 import Tandoori.Ty.Ctxt
 import Tandoori.Ty.MonoEnv
 import Control.Monad.RWS
@@ -24,13 +26,14 @@ import Tandoori.Ty.ClassDecl
 
 data R = R { cons :: Map.Map ConName CanonizedType,
              baseClasses :: BaseClasses,
+             baseInstances :: HsPred Name -> Maybe [HsPred Name],
              ctxt :: Ctxt }
 
 newtype Typing a = Typing { rws :: RWS R [ErrorMessage] Int a} deriving Monad
 
-runTyping :: [LTyClDecl Name] -> Typing a -> (a, [ErrorMessage])
-runTyping ltydecls typing = let (result, s', output) = (runRWS . rws) typing r s
-                            in (result, output)
+runTyping :: [LTyClDecl Name] -> [LInstDecl Name] -> Typing a -> (a, [ErrorMessage])
+runTyping ltydecls linstdecls typing = let (result, s', output) = (runRWS . rws) typing r s
+                                       in (result, output)
     where tydecls = map unLoc ltydecls
           cons = Map.fromList $ concatMap constructorsFromDecl tydecls
 
@@ -39,6 +42,7 @@ runTyping ltydecls typing = let (result, s', output) = (runRWS . rws) typing r s
 
           r = R { cons = cons,
                   baseClasses = baseClasses,
+                  baseInstances = getInstanceMap linstdecls,
                   ctxt = addUserDecls mkCtxt methodSigs }
           s = 0
 
@@ -76,6 +80,9 @@ askForcedMonoVars = Typing $ asks $ monoVars . ctxt
 askCon conname = liftM (Map.lookup conname) $ Typing $ asks cons
 askBaseClassesOf cls = do f <- Typing $ asks baseClasses
                           return $ f cls
+
+askBaseInstancesOf pred = do f <- Typing $ asks baseInstances
+                             return $ f pred
 
 askUserDecl :: VarName -> Typing (Maybe (Located CanonizedType))                                 
 askUserDecl varname = do c <- Typing $ asks ctxt
