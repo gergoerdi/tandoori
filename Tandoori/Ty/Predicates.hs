@@ -38,7 +38,7 @@ instance Eq name => Eq (HsPred name) where
 
 instance Eq a => Eq (Located a) where
     (L _ x) == (L _ y) = x == y                                              
-                
+
 distinct []                   = []
 distinct (x:xs)  | elem x xs  = distinct xs
                  | otherwise  = x:distinct xs
@@ -58,8 +58,7 @@ flattenPredsIn :: [LHsPred Name] -> Typing [LHsPred Name]
 flattenPredsIn preds = liftM (distinct . concat) $ mapM flattenPredIn preds
                         
 flattenPredIn :: LHsPred Name -> Typing [LHsPred Name]
-flattenPredIn (L loc (HsClassP cls [lty])) = do classinfo <- askClassInfo
-                                                let baseClss = baseClassesOf classinfo cls                                                    
+flattenPredIn (L loc (HsClassP cls [lty])) = do baseClss <- askBaseClassesOf cls                                                    
                                                 lpreds' <- flattenPredsIn (map toPred baseClss ++ lpreds)                                                
                                                 return $ (L loc (HsClassP cls [lty'])):lpreds'
     where cty = canonize $ unLoc lty
@@ -81,15 +80,18 @@ resolvePreds cty = do lpreds' <- flattenPredsOut lpreds
                                             
 flattenPredsOut :: [LHsPred Name] -> Typing [LHsPred Name]
 flattenPredsOut lpreds = liftM (distinct . concat) $ mapM flattenPredOut lpreds
-    
-flattenPredOut :: LHsPred Name -> Typing [LHsPred Name]
-flattenPredOut (L loc (HsClassP cls [lty])) = return $ lpreds'
-    where lpreds' = filter (\ (L _ (HsClassP cls [lty])) -> hasTyVars (unLoc lty)) (lpred:lpreds)
-          lpreds = ctyLPreds cty
-          lpred = L loc $ HsClassP cls [lty']
-          lty' = noLoc $ ctyTy cty
-          cty = canonize $ unLoc lty
-                
-          hasTyVars ty = True
-          hasTyVars ty = not $ Set.null $ tyVarsOf ty
+
+-- flattenPredOut :: LHsPred Name -> Typing [LHsPred Name]
+-- flattenPredOut (L loc (HsClassP cls [lty])) = do
+--   let lty' = noLoc $ ctyTy cty
+--       lpred' = L loc $ HsClassP cls [lty']
+--       lpreds' = filter (\ (L _ (HsClassP cls [lty])) -> hasTyVars (unLoc lty)) (lpred':lpreds)
+--       return lpreds'         
+--     where cty = canonize $ unLoc lty
+--           lpreds = ctyLPreds cty
+
+--           hasTyVars ty = True
+--           hasTyVars ty = not $ Set.null $ tyVarsOf ty
                           
+flattenPredOut :: LHsPred Name -> Typing [LHsPred Name]
+flattenPredOut lpred = return [lpred]

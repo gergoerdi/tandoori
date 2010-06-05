@@ -13,7 +13,8 @@ import UniqFM
 import ForeignCall
 import SrcLoc
 import Outputable
-
+import NameSet
+    
 import Tandoori.Ty.Ctxt
 import Tandoori.Ty.MonoEnv
     
@@ -25,13 +26,20 @@ instance Show a => Show (Located a) where
 --     show (InstD _) = "InstD"
 --     show (ValD bind) = "ValD: '" ++ (show bind) ++ "'"
 
-deriving instance Show (HsDecl Name)
-deriving instance Show (HsBind Name)
-deriving instance Show (HsBind Id)
-deriving instance Show (DocDecl Name)
-deriving instance Show (DocDecl Id)
-deriving instance Show (SpliceDecl Name)
-deriving instance Show (SpliceDecl Id)
+deriving instance Show (HsTupArg Name)
+deriving instance Show (HsTupArg Id)
+-- deriving instance Show (HsDecl Name)
+-- deriving instance Show (HsBind Name)
+-- deriving instance Show (HsBind Id)
+deriving instance Show DocDecl
+-- deriving instance (Show a, Show b) => Show (HsBindLR a b)
+deriving instance Show (HsBindLR Name Name)         
+deriving instance Show (HsBindLR Id Id)
+-- deriving instance (Show a, Show b) => Show (StmtLR a b)
+deriving instance Show (StmtLR Name Name)
+deriving instance Show (StmtLR Id Id)
+-- deriving instance Show (SpliceDecl Name)
+-- deriving instance Show (SpliceDecl Id)
 deriving instance Show (RuleDecl Name)
 deriving instance Show (RuleDecl Id)
 deriving instance Show (WarnDecl Name)
@@ -47,11 +55,11 @@ deriving instance Show (HsExpr Id)
 deriving instance Show WarningTxt
 deriving instance Show (IPName Name)
 deriving instance Show (IPName Id)
-deriving instance Show (Stmt Name)
-deriving instance Show (Stmt Id)
+-- deriving instance Show (Stmt Name)
+-- deriving instance Show (Stmt Id)
 deriving instance Show (HsLocalBinds Name)
 deriving instance Show (HsLocalBinds Id)
---deriving instance Show (HsType Name)
+-- --deriving instance Show (HsType Name)
 deriving instance Show (HsType Id)
 deriving instance Show (HsStmtContext Name)
 deriving instance Show (HsStmtContext Id)
@@ -92,9 +100,10 @@ deriving instance Show (Match Id)
 deriving instance (Show a, Show b) => Show (HsConDetails a b)
 deriving instance (Show a, Show b) => Show (HsRecFields a b)
 deriving instance (Show a, Show b) => Show (HsRecField a b)
+-- deriving instance Show (HsConDeclDetails Name)
 deriving instance Show NewOrData
 deriving instance Show FamilyFlavour
-deriving instance Show FoType
+-- -- deriving instance Show FoType
 deriving instance Show HsWrapper
 deriving instance Show Prag
 deriving instance Show OverLitVal
@@ -107,18 +116,18 @@ deriving instance Show PredType
 deriving instance Show ForeignImport
 deriving instance Show ForeignExport
 deriving instance Show CExportSpec
-deriving instance Show DNCallSpec
+-- -- deriving instance Show DNCallSpec
 deriving instance Show CImportSpec
 deriving instance Show CCallConv
 deriving instance Show CCallTarget
-deriving instance Show DNType
-deriving instance Show DNKind
+-- -- deriving instance Show DNType
+-- -- deriving instance Show DNKind
 deriving instance Show HsExplicitForAll
 deriving instance Show HsBang
 deriving instance Show Fixity
 deriving instance Show FixityDirection
 deriving instance Show HsArrAppType
-deriving instance Show a => Show (UniqFM a)
+-- deriving instance Show a => Show (UniqFM a)
 deriving instance Show (RuleBndr Name)
 deriving instance Show (RuleBndr Id)
 deriving instance Show (ResType Name)
@@ -133,16 +142,26 @@ deriving instance Show (HsMatchContext Name)
 deriving instance Show (HsMatchContext Id)
 deriving instance Show (Sig Name)
 deriving instance Show (Sig Id)
-deriving instance Show (HsModule Name)
-deriving instance Show (HaddockModInfo Name)
-deriving instance Show (ImportDecl Name)
-deriving instance Show (ImportDecl RdrName)
-deriving instance Show (IE Name)
-deriving instance Show (IE RdrName)
-
-deriving instance Show Ctxt
+-- deriving instance Show (HsModule Name)
+-- -- deriving instance Show (HaddockModInfo Name)
+-- deriving instance Show (ImportDecl Name)
+-- deriving instance Show (ImportDecl RdrName)
+-- deriving instance Show (IE Name)
+-- deriving instance Show (IE RdrName)
+deriving instance Show (AnnDecl Name)
+deriving instance Show (AnnDecl Id)
+deriving instance Show (AnnProvenance Name)
+deriving instance Show (AnnProvenance Id)
+deriving instance Show InlinePragma
+deriving instance Show RuleMatchInfo
+         
+         
+-- deriving instance Show Ctxt
 deriving instance Show MonoEnv         
 
+instance (Show NameSet) where
+    show nameset = show (nameSetToList nameset)
+         
 -- instance (Show (HsType Name)) where
 --     -- show (HsTyVar x) = showNameShort x
 --     -- show (HsFunTy ty ty') = "(" ++ unwords [(show ty), "->", (show  ty')] ++ ")"

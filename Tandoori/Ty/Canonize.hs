@@ -52,4 +52,5 @@ collectPredsTy (HsBangTy bang lty)        = liftCollectPredsTy (HsBangTy bang) l
 collectPredsTy (HsForAllTy _ _ lctxt lty) = let (lty', preds') = collectPredsLTy lty
                                                 preds = unLoc lctxt
                                             in (unLoc lty', combinePreds [preds, preds'])
-                                           
+collectPredsTy (HsPredTy (HsClassP cls [lty])) = let (lty', preds) = collectPredsLTy lty
+                                                 in (HsPredTy (HsClassP cls [lty']), preds)

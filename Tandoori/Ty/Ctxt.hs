@@ -1,4 +1,9 @@
-module Tandoori.Ty.Ctxt (Ctxt(..), mkCtxt, getPolyVar, addPolyVars, addUserDecls, getUserDecl, removePolyVars, printCtxt) where
+{-# LANGUAGE NamedFieldPuns #-}
+module Tandoori.Ty.Ctxt (Ctxt(src, loc), mkCtxt, printCtxt,
+                         monoVars, addMonoVars,
+                         getPolyVar, addPolyVars,
+                         getUserDecl, addUserDecls)
+    where
 
 import Tandoori
 import Tandoori.Ty
@@ -8,6 +13,7 @@ import Tandoori.Ty.ShowTy
 import Tandoori.Ty.MonoEnv
 import Tandoori.Ty.Pretty
 import Tandoori.GHC.Internals
+import Tandoori.Errors
     
 import Text.PrettyPrint.Tabulator    
 
@@ -17,9 +23,6 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Maybe
     
-data Ctxt = Ctxt { polyVars :: Map.Map VarName (MonoEnv, CanonizedType),
-                   userdecls :: Map.Map VarName (Located CanonizedType) }
-             
 printCtxt :: Ctxt -> IO ()             
 printCtxt c = do print $ tabTy (rowsDecl ++ rowsInfer)
                           
@@ -35,26 +38,35 @@ printCtxt c = do print $ tabTy (rowsDecl ++ rowsInfer)
           tabTy rows = fromRows $ map rowTy rows
                                 
           rowsInfer = map (uncurry rowFromInfer) $ Map.toList $ polyVars c
-          rowsDecl = map (uncurry rowFromDecl) $ map (\ (name, lty) ->  (name, unLoc lty)) $ Map.toList $ userdecls c
+          rowsDecl = map (uncurry rowFromDecl) $ map (\ (name, lty) ->  (name, unLoc lty)) $ Map.toList $ userDecls c
 
 mkCtxt :: Ctxt
-mkCtxt = Ctxt { polyVars = Map.empty,
-                userdecls = Map.empty }
+mkCtxt = Ctxt { loc = noSrcSpan,
+                src = Nothing,
+                monoVars = Set.empty,
+                polyVars = Map.empty,
+                userDecls = Map.empty }
+
+data Ctxt = Ctxt { loc :: SrcSpan,
+                   src :: Maybe ErrorSource,
+                   monoVars :: Set.Set VarName,
+                   polyVars :: Map.Map VarName (MonoEnv, CanonizedType),
+                   userDecls :: Map.Map VarName (Located CanonizedType) }
+    
+          
+          
+addMonoVars ctxt@Ctxt{monoVars} vars = ctxt{ monoVars = monoVars `Set.union` vars }
 
 getPolyVar :: Ctxt -> VarName -> Maybe (MonoEnv, CanonizedType)
-getPolyVar c = flip Map.lookup (polyVars c)
-
+getPolyVar Ctxt{polyVars} varname = Map.lookup varname polyVars
+                                    
 addPolyVars :: Ctxt -> [(VarName, (MonoEnv, CanonizedType))] -> Ctxt
-addPolyVars c vars = c{polyVars = Map.union (Map.fromList vars) (polyVars c)}
-
-addUserDecls :: Ctxt -> [LSig Name] -> Ctxt
-addUserDecls c sigs = foldl addDecl c sigs
-    where addDecl c (L srcloc (TypeSig (L _ name) (L _ ty))) = c {userdecls = Map.insert name (L srcloc $ canonize ty) (userdecls c)}
-          addDecl c _                                        = c
+addPolyVars ctxt@Ctxt{polyVars} vars = ctxt{ polyVars = polyVars `Map.union` (Map.fromList vars) }
 
 getUserDecl :: Ctxt -> VarName -> Maybe (Located CanonizedType)
-getUserDecl c = flip Map.lookup (userdecls c)                                                    
-                                                            
-removePolyVars :: Ctxt -> [VarName] -> Ctxt
-removePolyVars c names = c{polyVars = foldl removePolyVar (polyVars c) names}
-    where removePolyVar = flip Map.delete                                                   
+getUserDecl Ctxt{userDecls} varname = Map.lookup varname userDecls
+
+addUserDecls :: Ctxt -> [LSig Name] -> Ctxt
+addUserDecls ctxt@Ctxt{userDecls} sigs = ctxt{ userDecls = foldl addDecl userDecls sigs }
+    where addDecl decls (L srcloc (TypeSig (L _ name) (L _ ty))) = Map.insert name (L srcloc $ canonize ty) decls
+          addDecl decls _                                        = decls

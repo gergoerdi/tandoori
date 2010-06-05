@@ -56,7 +56,7 @@ builtinDataCons = [nilDataCon, consDataCon, trueDataCon, falseDataCon]
 builtinDataConNames = map dataConName builtinDataCons
 
 --- Builtin typeclasses
-builtinClassNames = [eqClassName, ordClassName, numClassName, fractionalClassName]
+builtinClassNames = [numClassName, fractionalClassName]
                       
 --- Types of literals              
 typeOfLit :: HsLit -> CanonizedType

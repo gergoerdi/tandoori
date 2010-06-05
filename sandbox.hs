@@ -3,7 +3,7 @@ module Main where
 import Tandoori.GHC    
 import Tandoori.GHC.Parse
 import Tandoori.GHC.Scope
--- import Tandoori.Kludge.Show
+import Tandoori.Kludge.Show
 
 import Tandoori.Ty.State
     
@@ -21,7 +21,8 @@ import Tandoori.Ty.MonoEnv
     
 import Tandoori.Ty.DataType
 import Tandoori.Ty.ClassDecl
-
+import Tandoori.Ty.InstanceDecl
+    
 import qualified Data.Map as Map
 import Control.Monad.Writer (runWriterT)
 import Control.Monad (liftM)
@@ -39,19 +40,25 @@ src_filename = "input/declare.hs"
 typecheckMod mod = runDyn $ do
                      env <- getSession
                      (limports, ltydecls, group) <- liftIO $ runScope env mod
-                     let tydecls = map unLoc ltydecls
-                         cons = concatMap constructorsFromDecl tydecls
-                         cg = mkClassGraph tydecls
-                         classdecls = map funsFromClassDecl $ sortClassDecls cg
-                         classinfo = mkClassInfo cg
-                         classfunSigs = concatMap fst classdecls
-                         -- c = addUserDecls (mkCtxt cons classinfo) (concatMap fst classdecls)
-                             
+                     let (methods, _) = getClassInfo ltydecls
+                         instdecls = hs_instds group
+                         instmap = mkInstanceMap instdecls
+                         (L _ (InstDecl (L _ (HsPredTy (HsClassP cls _))) _ _ _)) = instdecls!!2
+                         --pred = HsClassP cls [noLoc $ HsListTy $ noLoc $ ctyTy tyBool]
+                         pred = HsClassP cls [noLoc $ HsListTy $ noLoc $ HsListTy $ noLoc $ ctyTy tyBool]
+                         pred' = HsClassP cls [noLoc $ ctyTy tyInt]
+
+                         printTest pred@(HsClassP cls [(L _ ty)]) = liftIO $ putStrLn $ unwords ["baseInstancesOf", show cls, show ty,
+                                                                                                 "=",
+                                                                                                 show $ baseInstancesOf instmap pred]
+                                 
+                     liftIO $ print cls
+                     liftIO $ mapM_ print instdecls
+                     mapM_ printTest [pred, pred']
                      let infer = do
-                              runWriterT $ mapM_ inferBinds $ map snd classdecls
+                              runWriterT $ mapM_ inferBinds $ map methodImpls methods
                               liftM fst $ inferValBinds (hs_valds group) $ askCtxt
-                         withDecls = withCons cons . withClasses classinfo . withUserDecls classfunSigs
-                     return $ runTyping $ withDecls infer
+                     return $ runTyping ltydecls $ infer
 
 main' [src_filename] = do mod <- parseMod src_filename
                           (c, errors) <- typecheckMod mod

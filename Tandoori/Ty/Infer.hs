@@ -11,6 +11,7 @@ import Tandoori.Ty.Canonize
 import Tandoori.Ty.Predicates
 import Tandoori.Ty.MonoEnv
 import Tandoori.Ty.Ctxt
+import Tandoori.Ty.Substitute
 import Tandoori.Ty.Unify
 import Tandoori.Ty.Instantiate
 import Control.Monad.Writer
@@ -246,7 +247,7 @@ unify ms tys = do eqs <- monoeqs
                   alpha <- mkTv
                   let eqs' = map (\ ty -> (alpha :=: ctyTy ty)) tys
                       calpha = mkCanonizedType alpha (concatMap ctyLPreds tys)
-                  case mgu eqs eqs' of
+                  case mgu (eqs ++ eqs') of
                     Left errs -> do addError $ UnificationFailed ms errs
                                     return $ (combineMonos ms, noPreds alpha)
                     Right s -> do let ms' = map (xformMono s) ms
@@ -262,7 +263,7 @@ unify ms tys = do eqs <- monoeqs
                     mkVar var = do tv <- mkTv
                                    return (var, tv)
                                
-          vars = concat $ map monoVars ms
+          vars = concat $ map getMonoVars ms
           monolpreds = concatMap (ctyLPreds . snd) vars
                      
           xformMono s m = mapMono (xformTy s) m

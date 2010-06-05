@@ -27,8 +27,8 @@ addMonoVar (MonoEnv m) (name, cty) = MonoEnv (Map.insert name cty m)
 getMonoVar :: MonoEnv -> VarName -> Maybe CanonizedType
 getMonoVar (MonoEnv m) name = Map.lookup name m
 
-monoVars :: MonoEnv -> [(VarName, CanonizedType)]
-monoVars (MonoEnv m) = Map.toList m
+getMonoVars :: MonoEnv -> [(VarName, CanonizedType)]
+getMonoVars (MonoEnv m) = Map.toList m
 
 combineMono :: MonoEnv -> MonoEnv -> MonoEnv
 combineMono (MonoEnv m) (MonoEnv m') = MonoEnv $ Map.union m m'
