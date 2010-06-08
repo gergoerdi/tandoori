@@ -1,7 +1,8 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving, NamedFieldPuns #-}
 module Tandoori.Ty.State (Typing, runTyping,
+                          sinkWriter,
                           mkTv,
-                          askCtxt,
+                          askCtxt, withCtxt,
                           askCon, askBaseClassesOf, askBaseInstancesOf,
                           askUserDecl, askPolyVar, askForcedMonoVars,
                           withUserDecls, withMonoVars, withPolyVars,
@@ -16,8 +17,9 @@ import Tandoori.Ty.ClassDecl
 import Tandoori.Ty.InstanceDecl    
 import Tandoori.Ty.Ctxt
 import Tandoori.Ty.MonoEnv
-import Control.Monad.RWS
-import Data.Maybe
+import Control.Monad (liftM)
+import Control.Monad.RWS (RWS, runRWS, asks, local, tell, get, modify)
+import Control.Monad.Writer (lift, runWriterT)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 
@@ -104,3 +106,10 @@ withPolyVars :: [(VarName, (MonoEnv, CanonizedType))] -> Typing a -> Typing a
 withPolyVars vars = Typing . local add . rws
     where add r@R{ctxt} = r{ ctxt = addPolyVars ctxt vars }
                               
+withCtxt :: Ctxt -> Typing a -> Typing a
+withCtxt ctxt = Typing . local change . rws
+    where change r = r{ ctxt = ctxt }
+
+sinkWriter xform writer = do (r, w) <- lift $ xform $ runWriterT writer
+                             tell w
+                             return r

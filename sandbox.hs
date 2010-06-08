@@ -57,7 +57,7 @@ typecheckMod mod = runDyn $ do
                      -- mapM_ printTest [pred, pred']
                      let infer = do
                               runWriterT $ mapM_ inferBinds $ map methodImpls methods
-                              liftM fst $ inferValBinds (hs_valds group) $ askCtxt
+                              liftM fst $ inferValBinds (hs_valds group)
                      return $ runTyping ltydecls linstdecls $ infer
 
 main' [src_filename] = do mod <- parseMod src_filename

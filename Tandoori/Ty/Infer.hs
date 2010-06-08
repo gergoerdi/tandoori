@@ -102,7 +102,12 @@ inferExpr (HsVar name) = do decl <- askUserDecl name
                                                                              Nothing -> Set.empty
                                                                              Just ty -> tyVarsOf $ ctyTy ty
                              
-inferExpr (HsLet binds lexpr)               = inferLocalBinds binds $ inferLExpr lexpr
+inferExpr (HsLet binds lexpr)               = --inferLocalBinds binds $ inferLExpr lexpr
+                                              do (ctxt, vars) <- inferLocalBinds binds
+                                                 (m, t) <- withCtxt ctxt $ inferLExpr lexpr
+                                                 let isOutsideVisible var _ = not(var `Set.member` vars)
+                                                     m' = filterMonoVars isOutsideVisible m
+                                                 return (m', t)
 
 inferExpr (OpApp left op fixity right)      = inferExpr $ HsApp (noLoc $ HsApp op left) right
 -- TODO:
@@ -118,28 +123,26 @@ inferGRhs (GRHS _ lexpr) = inferLExpr lexpr
 inferGRhss (GRHSs lgrhss _) = do (ms, ts) <- liftM unzip $ mapM (inferGRhs . unLoc) lgrhss
                                  unify ms ts
 
--- TODO: vvv Suckage vvv
-inferLocalBinds :: HsLocalBinds Name -> Typing (MonoEnv, CanonizedType) -> Typing (MonoEnv, CanonizedType)
-inferLocalBinds (HsValBinds vb)      typing  = do ((m, t), vars) <- inferValBinds vb typing
-                                                  let isOutsideVisible var _ = not(var `Set.member` vars)
-                                                      m' = filterMonoVars isOutsideVisible m
-                                                  return (m', t)
-inferLocalBinds (HsIPBinds ipbinds)  typing  = error "inferLocalBinds: HsIPBnds"
-inferLocalBinds EmptyLocalBinds      typing  = typing
+inferLocalBinds :: HsLocalBinds Name -> Typing (Ctxt, VarSet)
+inferLocalBinds (HsValBinds vb)      = inferValBinds vb
+inferLocalBinds (HsIPBinds ipbinds)  = error "inferLocalBinds: HsIPBnds"
+inferLocalBinds EmptyLocalBinds      = do ctxt <- askCtxt
+                                          return (ctxt, Set.empty)
 
-inferValBinds :: HsValBinds Name -> Typing a -> Typing (a, VarSet)
-inferValBinds (ValBindsOut recbinds lsigs) typing = withUserDecls lsigs $ runWriterT $ inferBindGroups lbindbags
+inferValBinds :: HsValBinds Name -> Typing (Ctxt, VarSet)
+inferValBinds (ValBindsOut recbinds lsigs) = withUserDecls lsigs $ runWriterT $ inferBindGroups lbindbags
     where lbindbags = map snd recbinds
 
-          inferBindGroups [] = lift typing
-          inferBindGroups (b:bs) = inferBindGroup b $ inferBindGroups bs
+          inferBindGroups [] = lift $ askCtxt
+          inferBindGroups (b:bs) = do ctxt' <- inferBindGroup b
+                                      sinkWriter (withCtxt ctxt') $ inferBindGroups bs
 
-          inferBindGroup :: LHsBinds Name -> VarCollector a -> VarCollector a
-          inferBindGroup lbindbag cont = do (m, vars) <- listen $ inferBinds lbindbag
-                                            tell vars
-                                            let varmap = map (\ v -> (v, fromJust $ getMonoVar m v)) $ Set.toList vars
-                                            polyvars <- liftM (concatMap maybeToList) $ mapM (lift . toPoly m) varmap
-                                            withPolyVars' polyvars $ cont
+          inferBindGroup :: LHsBinds Name -> VarCollector Ctxt
+          inferBindGroup lbindbag = do (m, vars) <- listen $ inferBinds lbindbag
+                                       tell vars
+                                       let varmap = map (\ v -> (v, fromJust $ getMonoVar m v)) $ Set.toList vars
+                                       polyvars <- liftM (concatMap maybeToList) $ mapM (lift . toPoly m) varmap
+                                       addPolyVars' polyvars
                                             
               where toPoly m (v, ty) = case lookupDecl v of
                                          Nothing -> do ty' <- resolvePreds ty
@@ -162,11 +165,10 @@ inferValBinds (ValBindsOut recbinds lsigs) typing = withUserDecls lsigs $ runWri
                                       return lty
                         where byName (L _ (TypeSig (L _ name) _)) = name == v
 
-                    withPolyVars' :: [(VarName, (MonoEnv, CanonizedType))] -> VarCollector a -> VarCollector a
-                    withPolyVars' polyvars collector = do (res, vars) <- lift (withPolyVars polyvars $ runWriterT collector)
-                                                          tell vars
-                                                          return res
--- TODO: ^^^ Suckage ^^^
+                    addPolyVars' :: [(VarName, (MonoEnv, CanonizedType))] -> VarCollector Ctxt
+                    addPolyVars' polyvars = do ctxt <- lift askCtxt
+                                               let ctxt' = addPolyVars ctxt polyvars
+                                               return ctxt'                                                        
                                                                     
 inferBinds :: LHsBinds Name -> VarCollector MonoEnv
 inferBinds lbindbag = do let lbinds = bagToList lbindbag
@@ -177,9 +179,7 @@ inferBinds lbindbag = do let lbinds = bagToList lbindbag
 type VarSet = Set.Set VarName    
 type VarCollector a = WriterT VarSet Typing a
 
-withLSrc' l collect = do (res, vars) <- lift $ withLSrc l $ runWriterT collect
-                         tell vars
-                         return res
+withLSrc' l collect = sinkWriter (withLSrc l) $ collect
     
 inferLBind :: (LHsBind Name) -> VarCollector MonoEnv
 inferLBind lbind = withLSrc' lbind $ inferBind $ unLoc lbind
