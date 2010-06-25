@@ -91,7 +91,10 @@ inferExpr (HsVar name) = do decl <- askUserDecl name
                                               return $ justType ty'
                               Nothing   -> do pv <- askPolyVar name
                                               case pv of
-                                                Nothing -> do alpha <- mkCTv
+                                                Nothing -> do monovars <- askForcedMonoVars
+                                                              unless (name `Set.member` monovars) $
+                                                                     addError $ UndefinedVar name
+                                                              alpha <- mkCTv
                                                               return $ name `typedAs` alpha
                                                 Just (m, t) -> do monovars <- askForcedMonoVars
                                                                   let isPoly tv = not (tv `Set.member` monotyvars)
@@ -185,7 +188,7 @@ inferLBind :: (LHsBind Name) -> VarCollector MonoEnv
 inferLBind lbind = withLSrc' lbind $ inferBind $ unLoc lbind
                                                                                         
 inferBind :: (HsBind Name) -> VarCollector MonoEnv
-inferBind PatBind{pat_lhs = lpat, pat_rhs = grhss} = do (m, t) <- inferLPat lpat
+inferBind PatBind{pat_lhs = lpat, pat_rhs = grhss} = do (m, t) <- inferLPat lpat -- TODO: add new vars to ctxt
                                                         (m', t') <- lift $ inferGRhss grhss
                                                         (m'', _) <- lift $ unify [m, m'] [t, t']
                                                         return m''
