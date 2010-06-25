@@ -1,4 +1,6 @@
-forceNum :: Num a => a -> a
-forceNum x = x
+class Foo a
+    
+forceFoo :: Foo a => a -> a
+forceFoo x = x
 
-testInherit x = forceNum x
+testInherit x = forceFoo x

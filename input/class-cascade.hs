@@ -1,9 +1,13 @@
-forceNum :: Num a => a -> a
-forceNum x = x
+class Foo a
+instance Foo Int
+instance Foo a => Foo [a]    
 
-testInherit = forceNum 1
+forceFoo :: Foo a => a -> a
+forceFoo x = x
 
-testInheritCompound = forceNum []
+testInherit = forceFoo 1
 
-testCompund [] = forceNum []
-testCompund xs = forceNum xs
+testInheritCompound = forceFoo []
+
+testCompund [] = forceFoo []
+testCompund xs = forceFoo xs

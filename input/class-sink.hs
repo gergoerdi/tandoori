@@ -1,5 +1,9 @@
 -- undefined = undefined
 
+class Eq a where
+    (==) :: a -> a -> Bool
+    x /= y = not (x == y)
+            
 forceNum :: Eq a => a -> a
 forceNum x = x
 
