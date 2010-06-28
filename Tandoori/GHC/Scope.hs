@@ -22,7 +22,7 @@ import Module (mainPackageId)
 import Bag (emptyBag)
 import OccName (emptyOccSet)
 
-import Tandoori.Ty
+import Tandoori.Typing
 
 builtinNames = builtinTyNames ++ builtinDataConNames ++ builtinClassNames
     
