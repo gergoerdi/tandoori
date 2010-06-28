@@ -23,9 +23,8 @@ import Control.Monad.Writer (lift, runWriterT)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
     
-import Tandoori.Typing.DataType
--- import Tandoori.Ty.ClassDecl
-    
+import Debug.Trace
+
 newtype Counter = Counter{ unCounter :: Int } deriving Enum
 
 type KindMap = Map.Map TvName Int -- TODO: DataName
@@ -46,7 +45,7 @@ newtype Typing a = Typing { unTyping :: RWS R [ErrorMessage] Counter a} deriving
 
 -- runTyping :: [LTyClDecl Name] -> [LInstDecl Name] -> Typing a -> (a, [ErrorMessage])
 runTyping :: Typing a -> (a, [ErrorMessage])
-runTyping typing = let (result, s', output) = (runRWS . unTyping) typing r s
+runTyping typing = let (result, s', output) = (runRWS . unTyping) typing' r s
                    in (result, output)
     where r = R { kindmap = Map.empty,
                   conmap = Map.empty, -- TODO: built-in constructors for list and bool
@@ -54,24 +53,14 @@ runTyping typing = let (result, s', output) = (runRWS . unTyping) typing r s
                   instmap = Map.empty,
                   ctxt = mkCtxt }
           s = Counter 0
-              
-          -- tydecls = map unLoc ltydecls
-          -- cons = liftM (Map.fromList . concat) $ mapM constructorsFromDecl tydecls
-                    
-                    
--- runTyping ltydecls linstdecls typing = let (result, s', output) = (runRWS . rws) typing r s
---                                        in (result, output)
---     where tydecls = map unLoc ltydecls
---           cons = Map.fromList $ concatMap constructorsFromDecl tydecls
 
---           (methods, baseClasses) = getClassInfo ltydecls                 
---           methodSigs = concatMap methodDecls methods
-
---           r = R { cons = cons,
---                   baseClasses = baseClasses,
---                   baseInstances = getInstanceMap linstdecls,
---                   ctxt = addUserDecls mkCtxt methodSigs }
---           s = 0
+          typing' = do α <- mkTyVar
+                       let cons = map (\(n, τ) -> (dataConName n, τ)) $
+                                  [(nilDataCon, tyList α),
+                                   (consDataCon, tyCurryFun [α, tyList α, tyList α]),
+                                   (trueDataCon, tyBool),
+                                   (falseDataCon, tyBool)]
+                       withCons cons $ typing              
 
 fresh :: Typing Int
 fresh = Typing $ do u <- gets unCounter
@@ -144,4 +133,4 @@ sinkWriter xform writer = do (r, w) <- lift $ xform $ runWriterT writer
 
 withCons :: [(VarName, Ty)] -> Typing a -> Typing a
 withCons cons = Typing . local add . unTyping
-    where add r = r{conmap = Map.fromList cons}
+    where add r@R{conmap} = r{conmap = conmap `Map.union` (Map.fromList cons)}

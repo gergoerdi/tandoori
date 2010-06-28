@@ -164,7 +164,7 @@ inferValBinds (ValBindsOut recbinds lsigs) = do decls <- liftM catMaybes $ mapM 
                                                                   --       where ctyDecl' = substCTy s (ctyDecl, [])
 
 
-                    fitDecl σDecl σ = undefined
+                    fitDecl σDecl σ = error "undefined: fitDecl"
                                                              
                     lookupDecl v = do (L _ (TypeSig _ lty)) <- find byName lsigs
                                       return lty
@@ -292,7 +292,7 @@ subst s (PolyTy ctx τ) = do let τ' = substTy s τ
                             return $ PolyTy ctx' τ'
                                    
 resolvePred :: OverPred -> Typing PolyCtx
-resolvePred = undefined
+resolvePred = error "undefined: resolvePred"
 -- resolvePred (cls, τ) = case τ of
 --                          TyVar α -> return [(cls, α)]
 --                          _       -> do let κ = fromJust $ tyCon τ

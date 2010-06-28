@@ -20,7 +20,8 @@ lookupTv = gets . Map.lookup
 isPoly :: Tv -> Instantiate Bool
 -- isPoly α = do f <- gets fst
 --               return $ f α
-isPoly = undefined
+isPoly τ = do f <- ask
+              return $ f τ
 
 ensureTv :: Tv -> Instantiate Tv
 ensureTv α = do lookup <- lookupTv α
