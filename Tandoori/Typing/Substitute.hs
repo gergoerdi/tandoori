@@ -3,13 +3,12 @@ module Tandoori.Typing.Substitute where
 
 import Tandoori
 import Tandoori.Typing
-import Tandoori.Typing.ShowTy    
 import Control.Monad
 import Control.Monad.RWS
 import qualified Data.Map as Map
 import qualified Data.Set as Set
     
-newtype Subst = S (Map.Map Tv Ty) deriving Show
+newtype Subst = S (Map.Map Tv Ty)
 
 emptySubst :: Subst
 emptySubst = S Map.empty

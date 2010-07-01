@@ -19,7 +19,7 @@ constructorsFromDecl decl | isDataDecl decl  = do
     τArgs <- forM σArgs $ \ σ -> do
               case σ of
                 PolyTy [] τ -> return τ
-                PolyTy ctx τ -> throwErrorLOFASZ $ strMsg "Ctxt in constructor" -- TODO: errors
+                PolyTy ctx τ -> raiseError $ InvalidCon σ
     let τ = tyCurryFun (τArgs ++ [τData])
     return (unLoc $ con_name con, τ)
 constructorsFromDecl _ = return []

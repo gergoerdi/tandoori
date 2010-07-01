@@ -57,11 +57,7 @@ inferLExpr lexpr = withLSrc lexpr $ inferExpr $ unLoc lexpr
 inferExpr :: HsExpr Name -> Typing (MonoEnv, PolyTy)
 inferExpr (HsLit lit)                       = return $ justType $ PolyTy [] $ typeOfLit lit
 inferExpr (HsOverLit overlit)               = liftM justType $ typeOfOverLit overlit
-inferExpr (HsVar name) | isDataConName name = do con <- askCon name
-                                                 τ <- case con of
-                                                       Nothing -> do addError (UndefinedCon name)
-                                                                     mkTyVar
-                                                       Just τ -> instantiate (const True) τ
+inferExpr (HsVar name) | isDataConName name = do τ <- (instantiate (const True) =<< askCon name) `orElse` mkTyVar
                                                  return $ justType $ PolyTy [] τ
 inferExpr (ExplicitList _ lexprs)           = do (ms, ts) <- liftM unzip $ mapM inferLExpr lexprs
                                                  (m, t) <- unify ms ts
@@ -91,8 +87,8 @@ inferExpr (HsVar x) = do decl <- askUserDecl x
                            Nothing   -> do pv <- askPolyVar x
                                            case pv of
                                              Nothing -> do monovars <- askForcedMonoVars
-                                                           unless (x `Set.member` monovars) $
-                                                                  addError $ UndefinedVar x
+                                                           (unless (x `Set.member` monovars) $
+                                                                   raiseError $ UndefinedVar x) `orElse` return ()
                                                            alpha <- mkTyVar
                                                            return $ x `typedAs` (PolyTy [] alpha)
                                              Just (m, σ) -> do monovars <- askForcedMonoVars
@@ -143,17 +139,25 @@ inferValBinds (ValBindsOut recbinds lsigs) = do decls <- liftM catMaybes $ mapM 
           inferBindGroup lbindbag = do (m, vars) <- listen $ inferBinds lbindbag
                                        tell vars
                                        let varmap = map (\ v -> (v, fromJust $ getMonoVar m v)) $ Set.toList vars
+                                       -- TODO: Location
                                        polyvars <- liftM catMaybes $ mapM (lift . toPoly m) varmap
                                        addPolyVars' polyvars
               where toPoly m (v, σ) = do lookup <- runMaybeT $ lookupDecl v
                                          case lookup of
-                                           Nothing -> do -- checkCtxAmbiguity
-                                                        return $ Just (v, (m, σ))
+                                           Nothing -> do checkCtxAmbiguity σ
+                                                         return $ Just (v, (m, σ))
                                            Just (L loc σDecl) -> doLoc loc $ do
                                                                     fitDecl σDecl σ
+                                                                    checkCtxAmbiguity σDecl
                                                                     return Nothing
 
-                    fitDecl (PolyTy ctxDecl τDecl) (PolyTy ctx τ) = fitDeclTy τDecl τ >> return ()
+                    checkCtxAmbiguity σ@(PolyTy ctx τ) = forM_ ctx $ \(cls, α) -> do
+                                                           unless (α `Set.member` tvs) $
+                                                             raiseError $ AmbiguousPredicate σ (cls, α)
+                        where tvs = tvsOf τ
+                                                                           
+                    fitDecl (PolyTy ctxDecl τDecl) (PolyTy ctx τ) = do s <- fitDeclTy τDecl τ
+                                                                       return ()
 
                     lookupDecl :: VarName -> MaybeT Typing (Located PolyTy)
                     lookupDecl v = do (L loc (TypeSig _ lty)) <- MaybeT $ return $ find byName lsigs
@@ -223,7 +227,7 @@ inferPat (VarPat name)                     = do tell $ Set.singleton name
                                                 alpha <- lift mkTyVar
                                                 return $ name `typedAs` (PolyTy [] alpha)
 inferPat (LitPat lit)                      = return $ justType $ PolyTy [] $ typeOfLit lit
-inferPat (ConPatIn (L _ con) details)  = do Just τCon <- lift $ askCon con -- TODO: errors
+inferPat (ConPatIn (L _ con) details)  = do τCon <- lift $ askCon con -- TODO: errors
                                             (ms, σs) <- liftM unzip $ mapM inferLPat lpats
                                             alpha <- lift mkTyVar
                                             (m, σ) <- lift $ unify ms [PolyTy [] τCon, ptyCurryFun (σs ++ [PolyTy [] alpha])]
@@ -286,12 +290,11 @@ subst s (PolyTy ctx τ) = do let τ' = substTy s τ
                             return $ PolyTy ctx' τ'
                                    
 resolvePred :: OverPred -> Typing PolyCtx
--- resolvePred (cls, τ) = error $ unwords ["undefined: resolvePred", show (cls, τ)]
 resolvePred (cls, τ) = case τ of
                          TyVar α -> return [(cls, α)]
                          _       -> do let κ = fromJust $ tyCon τ
                                        instData <- askInstance cls κ
                                        case instData of
-                                         Nothing -> throwErrorLOFASZ $ strMsg $ "throwError $ MissingInstance (cls, τ)" -- TODO: Error
+                                         Nothing -> raiseError $ UnfulfilledPredicate (cls, τ)
                                          Just (PolyTy ctx τ') -> do s <- fitDeclTy τ τ' -- N.b. the order of the equation is important
                                                                     substCtx s ctx

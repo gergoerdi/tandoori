@@ -21,7 +21,7 @@ classMap decls = do (g, fromVertex) <- classGraph decls
                         components = G.scc g
                         checkComponent tree = case map fromVertex' (T.flatten tree) of
                                                 [c] -> return c
-                                                cs -> throwErrorLOFASZ $ strMsg $ unwords ["ClassCycle", show cs]
+                                                cs -> raiseError $ ClassCycle cs
                     mapM_ checkComponent components
                     let toClassInfo v = do let decl = fromVertex v
                                                cls = tcdName decl
@@ -44,11 +44,11 @@ classGraph decls = do (g, fromVertex, toVertex) <- G.graphFromEdges <$> edges
           edgesFromDecl decl = do checkCtx
                                   return (decl, cls, map fst ctx)
               where cls = tcdName decl
-                    [L _ (UserTyVar tv)] = tcdTyVars decl
+                    [L _ (UserTyVar α)] = tcdTyVars decl
                     ctx = map superFromPred $ map unLoc $ unLoc $ tcdCtxt decl
-                    superFromPred (HsClassP cls [L _ (HsTyVar tv')]) = (cls, tv')
-                    checkCtx = forM ctx $ \ (name', tv') ->
-                                 unless (tv' == tv) $
-                                   throwErrorLOFASZ $ strMsg $ unwords ["InvalidClassCtx", show (cls, tv), show (name', tv')]
+                    superFromPred (HsClassP cls [L _ (HsTyVar α')]) = (cls, α')
+                    checkCtx = forM ctx $ \ (cls', α') ->
+                                 unless (α' == α) $
+                                   raiseError $ InvalidClassCtx (cls, α) (cls', α')
                                               
                              

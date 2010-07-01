@@ -15,8 +15,6 @@ import Data.Maybe
 import Tandoori
 import Tandoori.GHC.Internals as GHC
 import Tandoori.Typing
--- import Tandoori.Ty.ClassDecl
--- import Tandoori.Ty.InstanceDecl    
 import Tandoori.Typing.Ctxt
 import Tandoori.Typing.MonoEnv
 import Control.Monad (liftM)
@@ -29,8 +27,32 @@ import qualified Data.Map as Map
     
 import Debug.Trace
 
+--- Errors    
+data ErrorSource = forall src. Outputable src => ErrorSource src                                  
+data ErrorLocation = ErrorLocation SrcSpan (Maybe ErrorSource)
+data ErrorMessage = ErrorMessage ErrorLocation ErrorContent
+
+data ErrorContent = UndefinedCon ConName
+                  | UndefinedVar VarName
+                  | UnificationFailed [MonoEnv] [TyEq]
+                  | CantFitDecl PolyTy PolyTy [TyEq]
+                  | ClassCycle [Cls]
+                  | InvalidClassCtx (Cls, Tv) PolyPred
+                  | InvalidCon PolyTy
+                  | AmbiguousPredicate PolyTy PolyPred
+                  | UnfulfilledPredicate OverPred
+                  | OtherError String
+
+instance Error ErrorContent where
+    strMsg = OtherError
+                    
+instance Error ErrorMessage where
+    strMsg = ErrorMessage (ErrorLocation noSrcSpan Nothing) . OtherError
+                    
+--- State
 newtype Counter = Counter{ unCounter :: Int } deriving Enum
 
+--- Reader
 type KindMap = Map.Map TvName Int -- TODO: DataName
 type ConMap = Map.Map ConName Ty
 data ClsInfo = ClsInfo { clsSupers :: [Cls],
@@ -49,9 +71,9 @@ data R = R { loc :: SrcSpan,
                         
              ctxt :: Ctxt }
 
+--- The Typing monad       
 newtype Typing a = Typing { unTyping :: ErrorT ErrorMessage (RWS R [ErrorMessage] Counter) a} deriving (Monad, Functor)
 
--- runTyping :: [LTyClDecl Name] -> [LInstDecl Name] -> Typing a -> (a, [ErrorMessage])
 runTyping :: Typing a -> (Maybe a, [ErrorMessage])
 runTyping typing = let (result, s', output) = (runRWS . runErrorT . unTyping) typing' r s
                    in case result of
@@ -100,21 +122,29 @@ withSrc src = Typing . (local setSrc) . unTyping
 withLSrc :: Outputable e => Located e -> Typing a -> Typing a
 withLSrc (L loc src) = withLoc loc . withSrc src
 
-addError :: ErrorContent -> Typing ()
-addError err = do loc <- Typing $ asks loc
-                  src <- Typing $ asks src
-                  let msg = ErrorMessage (ErrorLocation loc src) err
-                  Typing $ tell [msg]
+raiseError :: ErrorContent -> Typing a
+raiseError err = do loc <- Typing $ asks loc
+                    src <- Typing $ asks src
+                    let msg = ErrorMessage (ErrorLocation loc src) err
+                    Typing $ throwError msg
 
-throwErrorLOFASZ :: ErrorContent -> Typing a
+orElse :: Typing a -> Typing a -> Typing a
+a `orElse` b = Typing $ (unTyping a) `catchError` (\err -> do
+                                                     tell [err]
+                                                     unTyping b)
+                           
+throwErrorLOFASZ :: String -> Typing a
 throwErrorLOFASZ err = do loc <- Typing $ asks loc
                           src <- Typing $ asks src
-                          let msg = ErrorMessage (ErrorLocation loc src) err
+                          let msg = ErrorMessage (ErrorLocation loc src) (OtherError err)
                           Typing $ throwError msg
                          
 askCtxt = Typing $ asks ctxt                 
 askForcedMonoVars = Typing $ asks $ monoVars . ctxt
-askCon conname = liftM (Map.lookup conname) $ Typing $ asks conmap
+askCon name = do lookup <- Typing $ asks (Map.lookup name . conmap)
+                 case lookup of
+                   Nothing -> raiseError $ UndefinedCon name
+                   Just con -> return con
 -- askBaseClassesOf cls = do f <- Typing $ asks baseClasses
 --                           return $ f cls
 
@@ -182,27 +212,6 @@ askInstance cls κ = Typing $ asks (Map.lookup (cls, κ) . instances)
 
 
 
-data ErrorSource = forall src. Outputable src => ErrorSource src                                  
-data ErrorLocation = ErrorLocation SrcSpan (Maybe ErrorSource)
-data ErrorMessage = ErrorMessage ErrorLocation ErrorContent
-
-data ErrorContent = OtherMessage String
-                  | UndefinedCon ConName
-                  | UndefinedVar VarName
-                  | UnificationFailed [MonoEnv] [TyEq]
-                  | CantFitDecl PolyTy PolyTy [TyEq]
-                  | AmbiguousPredicate PolyTy PolyPred
-                  | UnfulfilledPredicate PolyPred
-                  | OtherError String
-
-instance Error ErrorContent where
-    strMsg = OtherError
-                    
-instance Error ErrorMessage where
-    strMsg = ErrorMessage (ErrorLocation noSrcSpan Nothing) . OtherError
-                    
-
-
 fromHsType :: GHC.HsType GHC.Name -> Typing PolyTy
 fromHsType ty = do (τ, ctx) <- runWriterT $ fromHsType' ty
                    return $ PolyTy ctx τ
@@ -227,9 +236,9 @@ fromHsType' (GHC.HsOpTy lty1 (L _ op) lty2)   = do τ1 <- fromHsType' $ unLoc lt
 fromHsType' (GHC.HsForAllTy _ _ lctxt lty)    = do tell =<< mapM (toPolyPred . unLoc) (unLoc lctxt)
                                                    fromHsType' (unLoc lty)
     where toPolyPred (GHC.HsClassP cls [L _ τ@(GHC.HsTyVar tv)]) | isTyVar τ = return (cls, tv)
-          toPolyPred (GHC.HsClassP cls [L _ τ]) = lift $ throwErrorLOFASZ $ strMsg "Malformed predicate"
-          toPolyPred (GHC.HsClassP cls _)       = lift $ throwErrorLOFASZ $ strMsg "Predicate with more than one type parameter"
-          toPolyPred _                          = lift $ throwErrorLOFASZ $ strMsg "Unsupported predicate"
+          toPolyPred (GHC.HsClassP cls [L _ τ]) = lift $ throwErrorLOFASZ $ "Malformed predicate"
+          toPolyPred (GHC.HsClassP cls _)       = lift $ throwErrorLOFASZ $ "Predicate with more than one type parameter"
+          toPolyPred _                          = lift $ throwErrorLOFASZ $ "Unsupported predicate"
                                                  
                                              
                                   

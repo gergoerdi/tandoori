@@ -44,8 +44,8 @@ mgu' leftOnly []               = return emptySubst
 mgu' leftOnly ((t :=: t'):eqs) = process False =<< mguEq (t :=: t')
     where process flipped Skip              = mgu' leftOnly eqs
           process flipped (Recurse eqs')    = mgu' leftOnly (eqs' ++ eqs)
-          process flipped Incongruent       = throwErrorLOFASZ $ strMsg $ "Unsolvable t t'"
-          process flipped OccursFailed      = throwErrorLOFASZ $ strMsg $ "InfiniteType t t'"
+          process flipped Incongruent       = throwErrorLOFASZ $ "Unsolvable t t'"
+          process flipped OccursFailed      = throwErrorLOFASZ $ "InfiniteType t t'"
           process flipped (Flip u)          = process True =<< if flipped || leftOnly then return u else mguEq (t' :=: t)
           process flipped (Substitute x t)  = do s <- mgu' leftOnly eqs'
                                                  return $ addSubst x t s

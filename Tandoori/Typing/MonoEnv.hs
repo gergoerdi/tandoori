@@ -3,7 +3,6 @@ module Tandoori.Typing.MonoEnv where
 
 import Tandoori
 import Tandoori.Typing
-import Tandoori.Typing.ShowTy
 
 import Data.Monoid    
 import Control.Monad.State
@@ -12,7 +11,7 @@ import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Set as Set
     
-newtype MonoEnv = MonoEnv{ unMonoEnv :: Map.Map VarName PolyTy } deriving (Show, Monoid)
+newtype MonoEnv = MonoEnv{ unMonoEnv :: Map.Map VarName PolyTy } deriving Monoid
 
 justType :: a -> (MonoEnv, a)
 justType x = pure x

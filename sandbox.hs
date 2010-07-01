@@ -17,7 +17,7 @@ import System.Environment
 import Tandoori.Typing.Infer
 import Tandoori.Typing.Ctxt
 import Tandoori.Typing
-import Tandoori.Typing.Errors
+import Tandoori.Typing.Show
 import Tandoori.Typing.MonoEnv
     
 -- import Tandoori.Typing.DataType
