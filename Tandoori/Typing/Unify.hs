@@ -13,8 +13,8 @@ import Tandoori.Typing.Substitute
 mgu :: [TyEq] -> Typing Subst
 mgu eqs = mgu' False eqs
 
-fitDeclTy :: Ty -> Ty -> Typing ()
-fitDeclTy τDecl τ = mgu' True [τ :=: τDecl] >> return ()
+fitDeclTy :: Ty -> Ty -> Typing Subst
+fitDeclTy τDecl τ = mgu' True [τ :=: τDecl]
     
 -- fitDecl :: PolyTy -> PolyTy -> ErrorT TypingError Typing Substitution
 -- fitDecl (PolyTy _ τDecl) (PolyTy _ τ) = mgu' True [τ :=: τDecl]

@@ -1,61 +1,54 @@
 {-# LANGUAGE NamedFieldPuns #-}
-module Tandoori.Ty.ClassDecl (BaseClasses, MethodInfo(..), getClassInfo) where
+module Tandoori.Typing.ClassDecl where
+-- module Tandoori.Ty.ClassDecl (BaseClasses, MethodInfo(..), getClassInfo) where
 
 import Tandoori
-import Tandoori.Ty   
+import Tandoori.Typing
+import Tandoori.Typing.Monad
 import Tandoori.GHC.Internals
-import Tandoori.Ty.Canonize
+
+import Control.Monad.Error
+import Control.Applicative
+
+import qualified Data.Map as Map    
+import qualified Data.Graph as G
+import qualified Data.Tree as T
     
-import Data.Maybe    
-import qualified Data.Graph as Graph    
+-- TODO: move to separate module
+classMap :: [TyClDecl Name] -> Typing [(Cls, ClsInfo)]
+classMap decls = do (g, fromVertex) <- classGraph decls
+                    let fromVertex' = tcdName . fromVertex
+                        components = G.scc g
+                        checkComponent tree = case map fromVertex' (T.flatten tree) of
+                                                [c] -> return c
+                                                cs -> throwErrorLOFASZ $ strMsg $ unwords ["ClassCycle", show cs]
+                    mapM_ checkComponent components
+                    let toClassInfo v = do let decl = fromVertex v
+                                               cls = tcdName decl
+                                               [L _ (UserTyVar α)] = tcdTyVars decl
+                                               lsigs = tcdSigs decl
+                                               supers = map fromVertex' $ G.reachable g v
+                                           meths <- mapM methDecl lsigs
+                                           return (cls, ClsInfo supers α (Map.fromList meths))
+                    -- TODO: Check uniqueness of member names
+                    mapM toClassInfo $ G.vertices g
+    where methDecl (L loc (TypeSig (L _ name) (L _ ty))) = do σ <- fromHsType ty
+                                                              return (name, (L loc σ))
 
---- Public interface
----
-data MethodInfo = MethodInfo { methodDecls :: [LSig Name],
-                               methodImpls :: LHsBinds Name }
-type BaseClasses = Name -> [Name]    
-               
-getClassInfo :: [LTyClDecl Name] -> ([MethodInfo], BaseClasses)
-getClassInfo ldecls = (methods, baseClasses)
-    where decls = map unLoc ldecls
-          cg@CG{graph, toVertex} = mkClassGraph decls
-          methods = map (uncurry MethodInfo . funsFromClassDecl) $ sortClassDecls cg
-          baseClasses cls = filter (/= cls) $ map (clsFromVertex cg) $ Graph.reachable graph (toVertex cls)
-
-
---- Implementation
----
-data ClassGraph = CG {graph :: Graph.Graph,
-                      fromVertex :: Graph.Vertex -> (TyClDecl Name, Name, [Name]),
-                      toVertex :: Name -> Graph.Vertex }
-
-declFromVertex CG{fromVertex} v = let (decl, _, _) = fromVertex v in decl
-clsFromVertex CG{fromVertex} v = let (_, cls, _) = fromVertex v in cls
-
-unknownCls cls = error $ unwords ["Unknown class", showSDoc (ppr cls)]                                                            
-                                                            
-mkClassGraph :: [TyClDecl Name] -> ClassGraph
-mkClassGraph decls = CG g fromVertex toVertex'
-    where (g, fromVertex, toVertex) = Graph.graphFromEdges $ map toEdges decls'
-          toVertex' cls = fromMaybe (unknownCls cls) $ toVertex cls
-          decls' = filter isClassDecl decls
-          toEdges decl = (decl, tcdName decl, baseclss decl)
-          baseclss decl = map baseclsFromPred $ map unLoc $ ctxt
-              where ctxt = unLoc $ tcdCtxt decl
-                    baseclsFromPred (HsClassP cls [lty]) = cls
-                                                           
-sortClassDecls :: ClassGraph -> [TyClDecl Name]
-sortClassDecls cg = map (declFromVertex cg) $ reverse $ Graph.topSort $ graph cg
-                               
-funsFromClassDecl :: TyClDecl Name -> ([LSig Name], LHsBinds Name)
-funsFromClassDecl decl | isClassDecl decl = (map addClass lsigs, methodbag)
-                       where classname = tcdName decl
-                             preds = map unLoc $ unLoc $ tcdCtxt decl
-                             lsigs = tcdSigs decl
-                             methodbag = tcdMeths decl
-                             [UserTyVar tv] = map unLoc $ tcdTyVars decl
-                             addClass (L loc (TypeSig lname lty)) = L loc (TypeSig lname lty')
-                                 where cty = canonize (unLoc lty)
-                                       pred = HsClassP classname [noLoc $ HsTyVar tv]
-                                       cty' = addPred cty (noLoc pred)
-                                       lty' = noLoc $ uncanonize cty'
+classGraph :: [TyClDecl Name] -> Typing (G.Graph, G.Vertex -> TyClDecl Name)
+classGraph decls = do (g, fromVertex, toVertex) <- G.graphFromEdges <$> edges
+                      let clsFromVertex v = let (cls, _, _) = fromVertex v in cls
+                      return (g, clsFromVertex)
+    where decls' = filter isClassDecl decls
+          edges = mapM edgesFromDecl decls'                  
+          edgesFromDecl decl = do checkCtx
+                                  return (decl, cls, map fst ctx)
+              where cls = tcdName decl
+                    [L _ (UserTyVar tv)] = tcdTyVars decl
+                    ctx = map superFromPred $ map unLoc $ unLoc $ tcdCtxt decl
+                    superFromPred (HsClassP cls [L _ (HsTyVar tv')]) = (cls, tv')
+                    checkCtx = forM ctx $ \ (name', tv') ->
+                                 unless (tv' == tv) $
+                                   throwErrorLOFASZ $ strMsg $ unwords ["InvalidClassCtx", show (cls, tv), show (name', tv')]
+                                              
+                             

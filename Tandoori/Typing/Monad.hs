@@ -35,7 +35,7 @@ type KindMap = Map.Map TvName Int -- TODO: DataName
 type ConMap = Map.Map ConName Ty
 data ClsInfo = ClsInfo { clsSupers :: [Cls],
                          clsParam :: Tv,
-                         clsVars :: Map.Map VarName PolyTy }    
+                         clsMeths :: Map.Map VarName (Located PolyTy) }    
 type ClsMap = Map.Map Cls ClsInfo
 type InstMap = Map.Map (Cls, TyCon) PolyTy    
     
@@ -45,7 +45,7 @@ data R = R { loc :: SrcSpan,
              kindmap :: KindMap,
              conmap :: ConMap,
              classmap :: ClsMap,
-             instmap :: InstMap,
+             instances :: InstMap,
                         
              ctxt :: Ctxt }
 
@@ -62,7 +62,7 @@ runTyping typing = let (result, s', output) = (runRWS . runErrorT . unTyping) ty
                   kindmap = Map.empty,
                   conmap = Map.empty,
                   classmap = Map.empty,
-                  instmap = Map.empty,
+                  instances = Map.empty,
                   ctxt = mkCtxt }
           s = Counter 0
 
@@ -153,9 +153,29 @@ withCons :: [(VarName, Ty)] -> Typing a -> Typing a
 withCons cons = Typing . local add . unTyping
     where add r@R{conmap} = r{conmap = conmap `Map.union` (Map.fromList cons)}
 
+withClasses cis = withClassMap (Map.fromList cis) . withUserDecls vars 
+    where vars = concatMap toVars cis
+              where toVars (cls, ci) = map (fmap $ addClass (cls, α)) members
+                        where α = clsParam ci
+                              members = Map.toList $ clsMeths ci
+              
+          addClass (cls, α) (L loc (PolyTy ctx τ)) = L loc (PolyTy ctx' τ)
+              where ctx' = (cls, α):ctx
+          withClassMap classmap = Typing . local (\ ctx -> ctx{classmap}) . unTyping
+
+askInstance :: Cls -> TyCon -> Typing (Maybe PolyTy)
+askInstance cls κ = Typing $ asks (Map.lookup (cls, κ) . instances)
 
 
 
+
+
+
+
+
+
+
+                            
 
 
 

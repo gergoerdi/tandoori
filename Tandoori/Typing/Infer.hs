@@ -12,6 +12,7 @@ import Tandoori.Typing.Unify
 import Tandoori.Typing.Substitute
 import Tandoori.Typing.Instantiate
 import Tandoori.Typing.DataType
+import Tandoori.Typing.ClassDecl
 import Control.Monad.Writer
 import Control.Monad.Reader
 import Control.Monad.Error
@@ -29,49 +30,15 @@ import Tandoori.GHC.Internals
 import Module    
     
 import Bag (bagToList)
-
-import qualified Data.Graph as G
     
 infer decls group = runTyping $ do
                       cons <- liftM concat $ mapM constructorsFromDecl decls
                       withCons cons $ do
-                        liftM fst $ inferValBinds (hs_valds group)
+                        cis <- classMap decls
+                        withClasses cis $ do
+                          liftM fst $ inferValBinds (hs_valds group)
 
 
--- TODO: move to separate module
--- classMap :: [TyClDecl Name] -> Typing [(Cls, ClsInfo)]
--- classMap cs = do (g, fromVertex) <- classGraph cs
---                  let fromVertex' = clsName . fromVertex
---                      components = G.scc g
---                      checkComponent tree = case map fromVertex' (T.flatten tree) of
---                                              [c] -> return c
---                                              cs -> throwError $ ClassCycle cs
---                  mapM_ checkComponent components
---                  let toClassInfo v = let cls@(Class name _ α defs) = fromVertex v
---                                          supers = map fromVertex' $ G.reachable g v
---                                          vars = map varDecl defs
---                                      in (name, ClsInfo supers α (Map.fromList vars))
---                  -- TODO: Check uniqueness of member names
---                  return $ map toClassInfo $ G.vertices g
---     where clsName (Class name _ _ _) = name          
---           varDecl (Def _ name (Just σ) _) = (name, σ)
-
-classGraph :: [TyClDecl Name] -> Typing (G.Graph, G.Vertex -> TyClDecl Name)
-classGraph decls = do (g, fromVertex, toVertex) <- G.graphFromEdges <$> edges
-                      let clsFromVertex v = let (cls, _, _) = fromVertex v in cls
-                      return (g, clsFromVertex)
-    where decls' = filter isClassDecl decls
-          edges = mapM edgesFromDecl decls'                  
-          edgesFromDecl decl = do checkCtx
-                                  return (decl, tcdName decl, map fst ctx)
-              where [L _ (UserTyVar tv)] = tcdTyVars decl
-                    ctx = map superFromPred $ map unLoc $ unLoc $ tcdCtxt decl
-                    superFromPred (HsClassP cls [L _ (HsTyVar tv')]) = (cls, tv')
-                    checkCtx = forM ctx $ \ (name', tv') ->
-                                 unless (tv' == tv) $
-                                   throwErrorLOFASZ $ strMsg "InvalidClassCtx (name, tv) (name', tv')"
-                                              
-                             
 doLoc :: SrcSpan -> Typing a -> Typing a
 doLoc srcloc m | isGoodSrcSpan srcloc  = withLoc srcloc $ m
                | otherwise             = m
@@ -319,12 +286,12 @@ subst s (PolyTy ctx τ) = do let τ' = substTy s τ
                             return $ PolyTy ctx' τ'
                                    
 resolvePred :: OverPred -> Typing PolyCtx
-resolvePred = error "undefined: resolvePred"
--- resolvePred (cls, τ) = case τ of
---                          TyVar α -> return [(cls, α)]
---                          _       -> do let κ = fromJust $ tyCon τ
---                                        instData <- askInstance cls κ
---                                        case instData of
---                                          Nothing -> throwError $ MissingInstance (cls, τ)
---                                          Just (PolyTy ctx τ') -> do s <- unify [τ' :=: τ] -- N.b. the order of the equation is important
---                                                                     substCtx s (fromPolyCtx ctx)
+-- resolvePred (cls, τ) = error $ unwords ["undefined: resolvePred", show (cls, τ)]
+resolvePred (cls, τ) = case τ of
+                         TyVar α -> return [(cls, α)]
+                         _       -> do let κ = fromJust $ tyCon τ
+                                       instData <- askInstance cls κ
+                                       case instData of
+                                         Nothing -> throwErrorLOFASZ $ strMsg $ "throwError $ MissingInstance (cls, τ)" -- TODO: Error
+                                         Just (PolyTy ctx τ') -> do s <- fitDeclTy τ τ' -- N.b. the order of the equation is important
+                                                                    substCtx s ctx
