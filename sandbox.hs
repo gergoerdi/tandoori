@@ -17,6 +17,7 @@ import System.Environment
 import Tandoori.Typing.Infer
 import Tandoori.Typing.Ctxt
 import Tandoori.Typing
+import Tandoori.Typing.Errors
 import Tandoori.Typing.MonoEnv
     
 -- import Tandoori.Typing.DataType
@@ -66,7 +67,9 @@ main' [src_filename] = do mod <- parseMod src_filename
                           if not(null errors)
                             then mapM_ (\ error -> printErrs $ ppr error $ mkErrStyle neverQualify) errors
                             else return ()
-                          printCtxt c
+                          case c of
+                            Just ctxt -> printCtxt ctxt
+                            Nothing -> return ()
                           return c
 
 main' _ = error "Usage: tandoori filename.hs" 

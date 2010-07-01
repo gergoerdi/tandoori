@@ -1,5 +1,5 @@
 {-# LANGUAGE NamedFieldPuns #-}
-module Tandoori.Typing.Ctxt (Ctxt(src, loc), mkCtxt,
+module Tandoori.Typing.Ctxt (Ctxt, mkCtxt,
                              printCtxt,
                              monoVars, addMonoVars,
                              getPolyVar, addPolyVars,
@@ -11,15 +11,14 @@ import Tandoori.Typing.ShowTy
 import Tandoori.Typing.MonoEnv
 import Tandoori.Typing.Pretty
 import Tandoori.GHC.Internals
-import Tandoori.Errors
-import Control.Monad.Error
     
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Maybe
 
 printCtxt :: Ctxt -> IO ()
-printCtxt c = mapM_  print $ map (\ (name, (m, σ)) -> (name, σ)) $ Map.toList $ polyVars c
+printCtxt c = mapM_  print $ ((map (\ (name, (m, σ)) -> (name, σ)) $ Map.toList $ polyVars c) ++
+                              (map (\ (name, (L _ σ)) -> (name, σ)) $ Map.toList $ userDecls c))
     
 -- printCtxt :: Ctxt -> IO ()             
 -- printCtxt c = do print $ tabTy (rowsDecl ++ rowsInfer)
@@ -38,16 +37,12 @@ printCtxt c = mapM_  print $ map (\ (name, (m, σ)) -> (name, σ)) $ Map.toList 
 --           rowsInfer = map (uncurry rowFromInfer) $ Map.toList $ polyVars c
 --           rowsDecl = map (uncurry rowFromDecl) $ map (\ (name, lty) ->  (name, unLoc lty)) $ Map.toList $ userDecls c
 
-data Ctxt = Ctxt { loc :: SrcSpan,
-                   src :: Maybe ErrorSource,
-                   monoVars :: Set.Set VarName,
+data Ctxt = Ctxt { monoVars :: Set.Set VarName,
                    polyVars :: Map.Map VarName (MonoEnv, PolyTy),
                    userDecls :: Map.Map VarName (Located PolyTy) }
     
 mkCtxt :: Ctxt
-mkCtxt = Ctxt { loc = noSrcSpan,
-                src = Nothing,
-                monoVars = Set.empty,
+mkCtxt = Ctxt { monoVars = Set.empty,
                 polyVars = Map.empty,
                 userDecls = Map.empty }          
           

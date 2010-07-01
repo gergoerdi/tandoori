@@ -1,20 +1,12 @@
-{-# LANGUAGE ExistentialQuantification #-}
+module Tandoori.Typing.Errors where
 
-module Tandoori.Errors (ErrorLocation(..), ErrorSource(..), ErrorMessage(..), ErrorContent(..), TyEq(..)) where
-
-import Tandoori
-import Tandoori.GHC.Internals    
-import Tandoori.Typing
-import Tandoori.Typing.MonoEnv
-import Tandoori.Typing.Pretty
-import Tandoori.Typing.ShowTy
-    
 import Data.Maybe
 
-data ErrorSource = forall src. Outputable src => ErrorSource src                                  
-data ErrorLocation = ErrorLocation SrcSpan (Maybe ErrorSource)
-data ErrorMessage = ErrorMessage ErrorLocation ErrorContent
-
+import Tandoori.Typing.Monad
+import Tandoori.GHC.Internals
+import Tandoori.Typing
+import Tandoori.Typing.Pretty
+    
 instance Outputable ErrorSource where
     ppr (ErrorSource src) = ppr src
                   
@@ -27,14 +19,6 @@ instance Outputable ErrorMessage where
     ppr (ErrorMessage (ErrorLocation srcloc Nothing) content)     = ppr srcloc <> colon <+> ppr content
     ppr (ErrorMessage (ErrorLocation srcloc (Just src)) content)  = ppr srcloc <> colon $$ ppr src $$ ppr content
                                   
-data ErrorContent = OtherMessage String
-                  | UndefinedCon ConName
-                  | UndefinedVar VarName
-                  | UnificationFailed [MonoEnv] [TyEq]
-                  | CantFitDecl PolyTy PolyTy [TyEq]
-                  | AmbiguousPredicate PolyTy PolyPred
-                  | UnfulfilledPredicate PolyPred
-
 showFailedEqs sep tyeqs = unwords $ map (\ (t1 :=: t2) -> unwords [show t1, sep, show t2]) tyeqs
 
 instance Outputable ErrorContent where

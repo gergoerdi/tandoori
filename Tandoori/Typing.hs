@@ -7,9 +7,8 @@ import Tandoori.GHC.Internals (Located(..), unLoc)
     
 import qualified Data.Set as Set
 import Control.Applicative
-import Control.Monad.Error
-import Control.Monad.Writer
 import Data.List (nub)
+import Data.Monoid
     
 type Tv = GHC.Name    
 type Con = GHC.Name
@@ -36,42 +35,6 @@ type PolyPred = (Cls, Tv)
 type PolyCtx = [PolyPred]
 data PolyTy = PolyTy PolyCtx Ty
 
-data TypingError = Unsolvable Ty Ty
-                 | InfiniteType Ty Ty
-                 | OtherError String -- TODO
-                 
-instance Error TypingError where
-    strMsg = OtherError
-            
-fromHsType :: GHC.HsType GHC.Name -> Either TypingError PolyTy
-fromHsType ty = do (τ, ctx) <- runWriterT $ fromHsType' ty
-                   return $ PolyTy ctx τ
-              
--- fromHsType' :: GHC.HsType GHC.Name -> WriterT PolyCtx (Either TypingError) Ty
-fromHsType' τ@(GHC.HsTyVar name) | isTyCon τ  = return $ TyCon name
-                                 | isTyVar τ  = return $ TyVar name
-fromHsType' (GHC.HsFunTy lty1 lty2)           = do τ1 <- fromHsType' $ unLoc lty1
-                                                   τ2 <- fromHsType' $ unLoc lty2
-                                                   return $ TyFun τ2 τ2
-fromHsType' (GHC.HsAppTy lty1 lty2)           = do τ1 <- fromHsType' $ unLoc lty1
-                                                   τ2 <- fromHsType' $ unLoc lty2
-                                                   return $ TyApp τ1 τ2
-fromHsType' (GHC.HsListTy lty)                = tyList <$> fromHsType' (unLoc lty)
-fromHsType' (GHC.HsTupleTy _ ltys)            = error "TODO: tuples"
-fromHsType' (GHC.HsParTy lty)                 = fromHsType' (unLoc lty)
-fromHsType' (GHC.HsDocTy lty _)               = fromHsType' (unLoc lty)
-fromHsType' (GHC.HsOpTy lty1 (L _ op) lty2)   = do τ1 <- fromHsType' $ unLoc lty1
-                                                   τ' <- fromHsType' $ GHC.HsTyVar op
-                                                   τ2 <- fromHsType' $ unLoc lty2
-                                                   return $ TyApp (TyApp τ' τ1) τ2
-fromHsType' (GHC.HsForAllTy _ _ lctxt lty)    = do tell =<< mapM (toPolyPred . unLoc) (unLoc lctxt)
-                                                   fromHsType' (unLoc lty)
-    where toPolyPred (GHC.HsClassP cls [L _ τ@(GHC.HsTyVar tv)]) | isTyVar τ = return (cls, tv)
-          toPolyPred (GHC.HsClassP cls [L _ τ]) = throwError $ strMsg "Malformed predicate"
-          toPolyPred (GHC.HsClassP cls _)       = throwError $ strMsg "Predicate with more than one type parameter"
-          toPolyPred _                          = throwError $ strMsg "Unsupported predicate"
-                                                 
-                                             
 fromPolyCtx ctx = map (fmap TyVar) ctx
 fromPolyTy (PolyTy ctx ty) = OverTy (fromPolyCtx ctx) ty
               

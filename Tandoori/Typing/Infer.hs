@@ -6,7 +6,6 @@ import Tandoori
 import Tandoori.Util
 import Tandoori.Typing
 import Tandoori.Typing.Monad
-import Tandoori.Errors
 import Tandoori.Typing.MonoEnv
 import Tandoori.Typing.Ctxt
 import Tandoori.Typing.Unify
@@ -16,6 +15,7 @@ import Tandoori.Typing.DataType
 import Control.Monad.Writer
 import Control.Monad.Reader
 import Control.Monad.Error
+import Control.Monad.Maybe
 import Control.Applicative
 import Data.Maybe
 import qualified Data.Set as Set
@@ -30,12 +30,47 @@ import Module
     
 import Bag (bagToList)
 
+import qualified Data.Graph as G
+    
 infer decls group = runTyping $ do
-                      case (liftM concat $ mapM constructorsFromDecl decls) of
-                        Left err -> error "cons error" -- TODO: error
-                        Right cons -> withCons cons $ do
-                                        liftM fst $ inferValBinds (hs_valds group)
+                      cons <- liftM concat $ mapM constructorsFromDecl decls
+                      withCons cons $ do
+                        liftM fst $ inferValBinds (hs_valds group)
 
+
+-- TODO: move to separate module
+-- classMap :: [TyClDecl Name] -> Typing [(Cls, ClsInfo)]
+-- classMap cs = do (g, fromVertex) <- classGraph cs
+--                  let fromVertex' = clsName . fromVertex
+--                      components = G.scc g
+--                      checkComponent tree = case map fromVertex' (T.flatten tree) of
+--                                              [c] -> return c
+--                                              cs -> throwError $ ClassCycle cs
+--                  mapM_ checkComponent components
+--                  let toClassInfo v = let cls@(Class name _ α defs) = fromVertex v
+--                                          supers = map fromVertex' $ G.reachable g v
+--                                          vars = map varDecl defs
+--                                      in (name, ClsInfo supers α (Map.fromList vars))
+--                  -- TODO: Check uniqueness of member names
+--                  return $ map toClassInfo $ G.vertices g
+--     where clsName (Class name _ _ _) = name          
+--           varDecl (Def _ name (Just σ) _) = (name, σ)
+
+classGraph :: [TyClDecl Name] -> Typing (G.Graph, G.Vertex -> TyClDecl Name)
+classGraph decls = do (g, fromVertex, toVertex) <- G.graphFromEdges <$> edges
+                      let clsFromVertex v = let (cls, _, _) = fromVertex v in cls
+                      return (g, clsFromVertex)
+    where decls' = filter isClassDecl decls
+          edges = mapM edgesFromDecl decls'                  
+          edgesFromDecl decl = do checkCtx
+                                  return (decl, tcdName decl, map fst ctx)
+              where [L _ (UserTyVar tv)] = tcdTyVars decl
+                    ctx = map superFromPred $ map unLoc $ unLoc $ tcdCtxt decl
+                    superFromPred (HsClassP cls [L _ (HsTyVar tv')]) = (cls, tv')
+                    checkCtx = forM ctx $ \ (name', tv') ->
+                                 unless (tv' == tv) $
+                                   throwErrorLOFASZ $ strMsg "InvalidClassCtx (name, tv) (name', tv')"
+                                              
                              
 doLoc :: SrcSpan -> Typing a -> Typing a
 doLoc srcloc m | isGoodSrcSpan srcloc  = withLoc srcloc $ m
@@ -129,9 +164,7 @@ inferValBinds (ValBindsOut recbinds lsigs) = do decls <- liftM catMaybes $ mapM 
                                                 withUserDecls decls $ runWriterT $ inferBindGroups lbindbags
     where lbindbags = map snd recbinds
 
-          fromSig (L srcloc (TypeSig (L _ name) (L _ ty))) = do τ <- case fromHsType ty of
-                                                                  Right τ -> return τ
-                                                                  Left err -> error "fromHsType failed" -- TODO: error
+          fromSig (L srcloc (TypeSig (L _ name) (L _ ty))) = do τ <- fromHsType ty
                                                                 return $ Just $ (name, L srcloc τ)
           fromSig _ = return Nothing
 
@@ -145,29 +178,20 @@ inferValBinds (ValBindsOut recbinds lsigs) = do decls <- liftM catMaybes $ mapM 
                                        let varmap = map (\ v -> (v, fromJust $ getMonoVar m v)) $ Set.toList vars
                                        polyvars <- liftM catMaybes $ mapM (lift . toPoly m) varmap
                                        addPolyVars' polyvars
-              where toPoly m (v, σ) = case lookupDecl v of
-                                         Nothing -> do -- checkCtxAmbiguity
-                                                       return $ Just (v, (m, σ))
-                                         Just (L loc σDecl) -> doLoc loc $ do
-                                                                  fitDecl σDecl σ
-                                                                  return Nothing
-                                                                  -- case fit of
-                                                                  --   Left errs -> do -- addError $ CantFitDecl σDecl σ errs -- TODO: errors
-                                                                  --                   return Nothing
-                                                                  --   Right s -> do σ' <- resolvePreds (substCTy s (ty, []))
-                                                                  --                 let lpreds = ctyLPreds ty'
-                                                                  --                 ensuresPreds <- ensuresPredicates lpreds ctyDecl'
-                                                                  --                 if ensuresPreds
-                                                                  --                    then return Nothing
-                                                                  --                    else do addError $ CantFitDecl ctyDecl ty' []
-                                                                  --                            return Nothing
-                                                                  --       where ctyDecl' = substCTy s (ctyDecl, [])
+              where toPoly m (v, σ) = do lookup <- runMaybeT $ lookupDecl v
+                                         case lookup of
+                                           Nothing -> do -- checkCtxAmbiguity
+                                                        return $ Just (v, (m, σ))
+                                           Just (L loc σDecl) -> doLoc loc $ do
+                                                                    fitDecl σDecl σ
+                                                                    return Nothing
 
+                    fitDecl (PolyTy ctxDecl τDecl) (PolyTy ctx τ) = fitDeclTy τDecl τ >> return ()
 
-                    fitDecl σDecl σ = error "undefined: fitDecl"
-                                                             
-                    lookupDecl v = do (L _ (TypeSig _ lty)) <- find byName lsigs
-                                      return lty
+                    lookupDecl :: VarName -> MaybeT Typing (Located PolyTy)
+                    lookupDecl v = do (L loc (TypeSig _ lty)) <- MaybeT $ return $ find byName lsigs
+                                      σDecl <- lift $ fromHsType $ unLoc lty
+                                      return $ L loc σDecl
                         where byName (L _ (TypeSig (L _ name) _)) = name == v
 
                     addPolyVars' :: [(VarName, (MonoEnv, PolyTy))] -> VarCollector Ctxt
@@ -257,14 +281,17 @@ unify ms σs = do eqs <- monoeqs
                  α <- mkTyVar
                  let eqs' = map (\ (PolyTy _ τ) -> (α :=: τ)) σs
                      σ = PolyTy (concatMap getCtx σs) α
-                 u <- runErrorT $ mgu $ eqs ++ eqs'
-                 case u of
-                   Left err -> do error "TODO: errors"
-                                  -- addError $ UnificationFailed ms eqs
-                                  return $ (combineMonos ms, PolyTy [] α)
-                   Right s -> do ms' <- mapM (substMono s) ms
-                                 σ' <- subst s σ
-                                 return (combineMonos ms', σ')
+                 s <- mgu $ eqs ++ eqs'
+                 ms' <- mapM (substMono s) ms
+                 σ' <- subst s σ
+                 return (combineMonos ms', σ')
+                 -- case u of
+                 --   Left err -> do error "TODO: errors"
+                 --                  -- addError $ UnificationFailed ms eqs
+                 --                  return $ (combineMonos ms, PolyTy [] α)
+                 --   Right s -> do ms' <- mapM (substMono s) ms
+                 --                 σ' <- subst s σ
+                 --                 return (combineMonos ms', σ')
                         
     where getCtx (PolyTy ctx _) = ctx
 

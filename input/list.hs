@@ -1,3 +1,4 @@
+list :: a -> [a]
 list x = [x]
 
 map f [] = []
