@@ -6,6 +6,7 @@ import Tandoori
 import Tandoori.Typing
 import Tandoori.Typing.Monad
 import Tandoori.GHC.Internals
+import Tandoori.Typing.Repr
 
 import Control.Monad.Error
 import Control.Applicative

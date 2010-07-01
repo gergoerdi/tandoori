@@ -4,6 +4,8 @@ import Tandoori
 import Tandoori.Typing
 import Tandoori.Typing.Monad
 import Tandoori.GHC.Internals
+import Tandoori.Typing.Repr
+    
 import Control.Monad
 import Control.Monad.Error
     
@@ -11,7 +13,7 @@ constructorsFromDecl :: TyClDecl Name -> Typing [(ConName, Ty)]
 constructorsFromDecl decl | isDataDecl decl  = do
   let nameData = tcdName decl
       αs = hsTyVarNames $ map unLoc $ tcdTyVars decl
-      τData = tyCurryCon $ (TyCon nameData):(map TyVar αs)
+      τData = tyCurryApp $ (TyCon nameData):(map TyVar αs)
 
   forM (map unLoc $ tcdCons decl) $ \ con -> do
     let tys = map unLoc $ hsConDeclArgTys $ con_details con

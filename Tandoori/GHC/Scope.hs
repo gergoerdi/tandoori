@@ -2,15 +2,17 @@ module Tandoori.GHC.Scope (runScope) where
 
 import SrcLoc (mkGeneralSrcSpan, unLoc, Located(..))
 import FastString (fsLit)
-import RdrName (emptyLocalRdrEnv, extendLocalRdrEnvList)
+import RdrName (RdrName, emptyLocalRdrEnv, extendLocalRdrEnvList)
 import RdrHsSyn (findSplice)
 import RnSource (rnSrcDecls, rnTyClDecls)
 import Panic (panic)
 import GHC (emptyRnGroup, emptyLHsBinds, mkModule, mkModuleName, HsModule(..), HsDecl(..))
-import HscTypes (hsc_global_rdr_env, hsc_global_type_env, hsc_type_env_var, Warnings(..))
+import HscTypes (HscEnv, hsc_global_rdr_env, hsc_global_type_env, hsc_type_env_var, Warnings(..))
+import HsDecls (LTyClDecl, HsGroup)
 import DriverPhases (HscSource(..))
 import TcRnMonad (TcGblEnv(..), TcLclEnv(..), initTcRnIf)
 import TcRnTypes (ArrowCtxt (..), RecFieldEnv(..), topStage, emptyImportAvails)
+import Name (Name)
 import NameEnv (emptyNameEnv)
 import NameSet (emptyNameSet, emptyDUs)
 import VarSet (emptyVarSet)
@@ -21,7 +23,8 @@ import FamInstEnv (emptyFamInstEnv)
 import Module (mainPackageId)
 import Bag (emptyBag)
 import OccName (emptyOccSet)
-
+import HsImpExp (LImportDecl)
+    
 import Tandoori.Typing
 
 builtinNames = builtinTyNames ++ builtinDataConNames ++ builtinClassNames
@@ -85,6 +88,7 @@ mkGbl env mod = do dfuns_var         <- newIORef emptyNameSet
                                 tcg_hpc      = False
                               }
 
+runScope :: HscEnv -> Located (HsModule RdrName) -> IO ([LImportDecl Name], [LTyClDecl Name], HsGroup Name)
 runScope env lmod = do let modinfo = mkModule mainPackageId $ mkModuleName "foo"
                            group = fst $ findSplice decls
                        gbl <- mkGbl env modinfo

@@ -13,6 +13,8 @@ import Tandoori.Typing.Substitute
 import Tandoori.Typing.Instantiate
 import Tandoori.Typing.DataType
 import Tandoori.Typing.ClassDecl
+import Tandoori.Typing.Repr
+    
 import Control.Monad.Writer
 import Control.Monad.Reader
 import Control.Monad.Error
@@ -27,8 +29,6 @@ import Debug.Trace
     
 import Tandoori.GHC.Internals
 
-import Module    
-    
 import Bag (bagToList)
     
 infer decls group = runTyping $ do
@@ -59,11 +59,11 @@ inferExpr (HsLit lit)                       = return $ justType $ PolyTy [] $ ty
 inferExpr (HsOverLit overlit)               = liftM justType $ typeOfOverLit overlit
 inferExpr (HsVar name) | isDataConName name = do τ <- (instantiate (const True) =<< askCon name) `orElse` mkTyVar
                                                  return $ justType $ PolyTy [] τ
-inferExpr (ExplicitList _ lexprs)           = do (ms, ts) <- liftM unzip $ mapM inferLExpr lexprs
-                                                 (m, t) <- unify ms ts
-                                                 return (m, ptyList t)
-inferExpr (ExplicitTuple tupargs _ )        = do (ms, ts) <- liftM unzip $ mapM inferTupArg tupargs
-                                                 unify ms [tyTuple ts]
+inferExpr (ExplicitList _ lexprs)           = do (ms, σs) <- liftM unzip $ mapM inferLExpr lexprs
+                                                 (m, σ) <- unify ms σs
+                                                 return (m, ptyList σ)
+inferExpr (ExplicitTuple tupargs _ )        = do (ms, σs) <- liftM unzip $ mapM inferTupArg tupargs
+                                                 unify ms [ptyTuple σs]
     where inferTupArg (Present lexpr) = inferLExpr lexpr                                                                                           
 
 inferExpr (HsApp ltyFun ltyParam)           = do (m1, σ1) <- inferLExpr ltyFun

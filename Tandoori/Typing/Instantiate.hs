@@ -40,6 +40,7 @@ instantiateM τ@(TyCon _)     = return τ
 instantiateM τ@(TyVar α)     = liftM TyVar (instantiateTvM α)
 instantiateM τ@(TyFun τ1 τ2) = liftM2 TyFun (instantiateM τ1) (instantiateM τ2)
 instantiateM τ@(TyApp τ1 τ2) = liftM2 TyApp (instantiateM τ1) (instantiateM τ2)
+instantiateM τ@(TyTuple _)   = return τ
                                                                       
 instantiatePredM :: OverPred -> Instantiate OverPred
 instantiatePredM (cls, τ) = do τ' <- instantiateM τ

@@ -10,18 +10,6 @@ import Tandoori.Typing.Ctxt
 import qualified Data.Map as Map    
 import Data.List    
     
-instance Show Name where
-    show = showNameShort
-
-showNameShort qname = show $ occNameString $ nameOccName qname           
-           
-showNameQual qname = show $ modulename ++ "." ++ name ++ "#" ++ uname
-    where name = occNameString $ nameOccName qname
-          modulename = case nameModule_maybe qname of
-                         Nothing -> "?"
-                         Just m  -> moduleNameString $ moduleName m
-          uname = show $ nameUnique qname
-
 data ShowTyCtxt = C { isLeftOfFun :: Bool, isRightOfApp :: Bool }
 
 showFunLeft :: ShowTyCtxt -> Ty -> String
@@ -46,9 +34,11 @@ showTy' :: ShowTyCtxt -> Ty -> String
 showTy' c (TyVar α) = showName α
 showTy' c (TyCon con) = showName con
 showTy' c (TyFun τ1 τ2) = parenIf (isLeftOfFun c) $ unwords [showFunLeft c τ1, "->", showFunRight c τ2]
-showTy' c (TyApp τ1 τ2) | isTyConList τ1 = "[" ++ showFunRight c τ2 ++ "]"
-                        | otherwise      = parenIf (isRightOfApp c) $ unwords [showAppLeft c τ1, showAppRight c τ2]           
--- showTy' c (HsTupleTy boxity ltys)     = "(" ++ (joinWith ", " $ map (showInParen c . unLoc) ltys) ++ ")"
+showTy' c τ@(TyApp τ1 τ2) | isTyConList τ1 = "[" ++ showFunRight c τ2 ++ "]"
+                          | isTyConTuple τ1 = let τs = tail $ tyUncurryApp τ
+                                              in "(" ++ commaList (map show τs) ++ ")"
+                          | otherwise      = parenIf (isRightOfApp c) $ unwords [showAppLeft c τ1, showAppRight c τ2]
+showTy' c (TyTuple n) = "(" ++ replicate (pred n) ',' ++ ")"
                                                
 showName :: Name -> String
 showName name = occNameString $ nameOccName name
@@ -56,8 +46,10 @@ showName name = occNameString $ nameOccName name
 showPreds :: OverCtx -> String
 showPreds [] = ""
 showPreds [pred] = unwords [showPred pred, "=> "]
-showPreds preds = unwords ["(" ++ (intercalate ", " $ map showPred preds) ++ ")", "=> "]
+showPreds preds = unwords ["(" ++ (commaList $ map showPred preds) ++ ")", "=> "]
 
+commaList = intercalate ", "                  
+                  
 showPred :: OverPred -> String
 showPred (cls, τ) = unwords [showName cls, show τ]
 
@@ -107,8 +99,8 @@ prettyTyEqM (t :=: u) = do t' <- prettyTyM t
                       
 
 printCtxt :: Ctxt -> IO ()
-printCtxt c = mapM_  print $ ((map (\ (name, (m, σ)) -> (name, σ)) $ Map.toList $ polyVars c) ++
-                              (map (\ (name, (L _ σ)) -> (name, σ)) $ Map.toList $ userDecls c))
+printCtxt c = mapM_  print $ ((map (\ (name, (m, σ)) -> (showName name, σ)) $ Map.toList $ polyVars c) ++
+                              (map (\ (name, (L _ σ)) -> (showName name, σ)) $ Map.toList $ userDecls c))
     
 -- printCtxt :: Ctxt -> IO ()             
 -- printCtxt c = do print $ tabTy (rowsDecl ++ rowsInfer)

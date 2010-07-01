@@ -24,10 +24,11 @@ substTyM τ@(TyVar α) = do tell $ Set.singleton α
                           case lookup of
                             Nothing -> return τ
                             Just τ' -> substTyM τ'
-substTyM τ@(TyCon _) = return τ
 substTyM (TyFun τ1 τ2) = liftM2 TyFun (substTyM τ1) (substTyM τ2)
 substTyM (TyApp τ1 τ2) = liftM2 TyApp (substTyM τ1) (substTyM τ2)
-
+substTyM τ@(TyCon _) = return τ
+substTyM τ@(TyTuple _) = return τ
+                         
 substTy :: Subst -> Ty -> Ty
 substTy s τ = fst $ evalRWS (substTyM τ) s ()
                          

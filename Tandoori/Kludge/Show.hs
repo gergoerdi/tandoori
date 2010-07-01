@@ -15,9 +15,6 @@ import SrcLoc
 import Outputable
 import NameSet
     
-import Tandoori.Ty.Ctxt
-import Tandoori.Ty.MonoEnv
-    
 instance Show a => Show (Located a) where
     show lx = "(L " ++ show (unLoc lx) ++ ")"
     
@@ -111,7 +108,7 @@ deriving instance Show HsLit
 deriving instance Show Boxity
 deriving instance Show InlineSpec        
 deriving instance Show Activation         
-deriving instance Show Type
+-- deriving instance Show Type
 deriving instance Show PredType         
 deriving instance Show ForeignImport
 deriving instance Show ForeignExport
@@ -154,21 +151,33 @@ deriving instance Show (AnnProvenance Name)
 deriving instance Show (AnnProvenance Id)
 deriving instance Show InlinePragma
 deriving instance Show RuleMatchInfo
-         
-         
--- deriving instance Show Ctxt
-deriving instance Show MonoEnv         
+deriving instance Show (HsType Name)         
 
+instance Show PostTcType where
+    show _ = "⊥"
+
+instance Show Name where
+    show = showNameShort
+
+showNameShort qname = show $ occNameString $ nameOccName qname           
+           
+showNameQual qname = show $ modulename ++ "." ++ name ++ "#" ++ uname
+    where name = occNameString $ nameOccName qname
+          modulename = case nameModule_maybe qname of
+                         Nothing -> "?"
+                         Just m  -> moduleNameString $ moduleName m
+          uname = show $ nameUnique qname         
+         
 instance (Show NameSet) where
     show nameset = show (nameSetToList nameset)
          
 -- instance (Show (HsType Name)) where
---     -- show (HsTyVar x) = showNameShort x
---     -- show (HsFunTy ty ty') = "(" ++ unwords [(show ty), "->", (show  ty')] ++ ")"
---     -- show (HsTupleTy boxity tys) = joinWith ", " $ map show tys
---     --     where joinWith sep [] = []
---     --           joinWith sep [x] = x
---     --           joinWith sep (x:xs) = x ++ sep ++ (joinWith sep xs)
+-- --     -- show (HsTyVar x) = showNameShort x
+-- --     -- show (HsFunTy ty ty') = "(" ++ unwords [(show ty), "->", (show  ty')] ++ ")"
+-- --     -- show (HsTupleTy boxity tys) = joinWith ", " $ map show tys
+-- --     --     where joinWith sep [] = []
+-- --     --           joinWith sep [x] = x
+-- --     --           joinWith sep (x:xs) = x ++ sep ++ (joinWith sep xs)
 --     show ty = showSDoc $ ppr ty
          
 instance (Show TyCon) where

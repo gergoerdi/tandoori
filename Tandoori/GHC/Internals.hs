@@ -28,7 +28,7 @@ import HsPat
 import HsLit
 import HsBinds
 import DataCon (dataConName)
-import TysWiredIn (intTyConName, charTyConName, boolTyConName, listTyConName, nilDataCon, consDataCon, trueDataCon, falseDataCon)
+import TysWiredIn (intTyConName, charTyConName, boolTyConName, listTyConName, tupleTyCon, nilDataCon, consDataCon, trueDataCon, falseDataCon)
 import PrelNames (stringTyConName, eqClassName, ordClassName, numClassName, fractionalClassName)
 import HsTypes
 import HsDecls

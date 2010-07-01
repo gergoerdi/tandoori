@@ -5,6 +5,7 @@ import Tandoori.Typing
 import Tandoori.Typing.Monad
 import Control.Monad.Error
 import Tandoori.Typing.Substitute
+import Tandoori.Typing.Show
     
 -- fitDecl :: TanType -> TanType -> Either [TyEq] Substitution
 -- fitDecl tyDecl ty = mgu' True [(ty :=: tyDecl)] -- TODO: Call ensurePredicates here
@@ -36,6 +37,7 @@ mguEq (TyVar α   :=: t')             | occurs α t' = return OccursFailed
 mguEq (t         :=: TyVar α)                      = return $ Flip Incongruent
 mguEq (TyFun t u :=: TyFun t' u')                  = return $ Recurse [t :=: t', u :=: u']
 mguEq (TyApp t u :=: TyApp t' u')                  = return $ Recurse [t :=: t', u :=: u']
+mguEq (TyTuple n :=: TyTuple m)      | n == m      = return Skip
 mguEq _                                            = return $ Incongruent
 
          
@@ -44,8 +46,8 @@ mgu' leftOnly []               = return emptySubst
 mgu' leftOnly ((t :=: t'):eqs) = process False =<< mguEq (t :=: t')
     where process flipped Skip              = mgu' leftOnly eqs
           process flipped (Recurse eqs')    = mgu' leftOnly (eqs' ++ eqs)
-          process flipped Incongruent       = throwErrorLOFASZ $ "Unsolvable t t'"
-          process flipped OccursFailed      = throwErrorLOFASZ $ "InfiniteType t t'"
+          process flipped Incongruent       = throwErrorLOFASZ $ unwords ["Unsolvable", show t, show t']
+          process flipped OccursFailed      = throwErrorLOFASZ $ unwords ["InfiniteType", show t, show t']
           process flipped (Flip u)          = process True =<< if flipped || leftOnly then return u else mguEq (t' :=: t)
           process flipped (Substitute x t)  = do s <- mgu' leftOnly eqs'
                                                  return $ addSubst x t s
