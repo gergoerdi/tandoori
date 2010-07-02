@@ -2,6 +2,7 @@ module Tandoori.Typing.DataType (constructorsFromDecl) where
 
 import Tandoori
 import Tandoori.Typing
+import Tandoori.Typing.Error
 import Tandoori.Typing.Monad
 import Tandoori.GHC.Internals
 import Tandoori.Typing.Repr

@@ -4,9 +4,10 @@ module Tandoori.Typing.Show(printCtxt) where
 import Tandoori.GHC.Internals
 import Tandoori.Typing
 import Tandoori.Typing.Pretty
-import Tandoori.Typing.Monad
+import Tandoori.Typing.Error
 import Tandoori.Typing.Ctxt
 
+import Control.Applicative    
 import qualified Data.Map as Map    
 import Data.List    
     
@@ -74,12 +75,16 @@ instance Outputable ErrorMessage where
                                   
 showFailedEqs sep tyeqs = unwords $ map (\ (t1 :=: t2) -> unwords [show t1, sep, show t2]) tyeqs
 
+instance Outputable TypingError where
+    ppr (Unsolvable (τ1 :=: τ2)) = text "Cannot unify" <+> text (show τ1) <+> text "with" <+> text (show τ2)
+    ppr (InfiniteType (τ1 :=: τ2)) = text "Occurs check failed: infinite type" <+> text (show τ1) <+> text "=" <+> text (show τ2)
+                          
 instance Outputable ErrorContent where
     ppr (UndefinedCon name)              = text "Reference to undefined constructor" <+> quotes (ppr name)
     ppr (UndefinedVar name)              = text "Reference to undefined variable" <+> quotes (ppr name)
-    ppr (UnificationFailed ms tyeqs)     = text "Cannot unify" <+> text (showFailedEqs "with" tyeqs')
-        where tyeqs' = runPretty $ mapM prettyTyEqM tyeqs
-    ppr (CantFitDecl tyDecl ty tyeqs)    = text "Declared type" <+> text (show tyDecl') <+> text "is not a special case of inferred type" <+> text (show ty')
+    ppr (UnificationFailed ms tyerr)     = ppr tyerr'
+        where tyerr' = runPretty $ prettyTypingErrorM tyerr
+    ppr (CantFitDecl tyDecl ty)          = text "Declared type" <+> text (show tyDecl') <+> text "is not a special case of inferred type" <+> text (show ty')
         where (tyDecl', ty') = runPretty $ do σDecl' <- prettyPolyTyM tyDecl
                                               σ' <- prettyPolyTyM ty
                                               return (σDecl', σ')
@@ -91,8 +96,12 @@ instance Outputable ErrorContent where
                                         return (σ', τ')
     ppr (UnfulfilledPredicate (cls, τ))  = text "Unfulfilled predicate" <+> text (showPred (cls, τ'))
         where τ' = prettyTy τ
+    ppr InvalidInstance                  = text "Invalid instance declaration"
     ppr (OtherError message  )           = text message
-
+                                           
+prettyTypingErrorM (Unsolvable eq) = Unsolvable <$> prettyTyEqM eq
+prettyTypingErrorM (InfiniteType eq) = InfiniteType <$> prettyTyEqM eq
+                                           
 prettyTyEqM (t :=: u) = do t' <- prettyTyM t
                            u' <- prettyTyM u
                            return $ t' :=: u'

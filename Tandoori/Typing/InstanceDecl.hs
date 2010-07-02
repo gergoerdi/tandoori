@@ -1,47 +1,28 @@
-module Tandoori.Ty.InstanceDecl where
+module Tandoori.Typing.InstanceDecl where
 
 import Tandoori
-import Tandoori.Ty   
-import Tandoori.Errors
+import Tandoori.Typing
+import Tandoori.Typing.Monad
 import Tandoori.GHC.Internals
-import Tandoori.Ty.Canonize
-import Tandoori.Ty.Unify
-import Tandoori.Ty.Substitute
-import Data.Maybe
-import Control.Monad
-import qualified Data.Map as Map
-
-data TyConKey = TyConKeyList
-              | TyConKeyTuple Int
-              | TyConKeyData TvName
-              deriving (Eq, Ord)
+import Tandoori.Typing.Repr
+import Tandoori.Typing.Error
     
-data InstanceDesc = InstanceDesc { cls :: Name, tyCon :: TyConKey }
-                  deriving (Eq, Ord)
+import Control.Monad.Error
+import Control.Applicative
 
-type InstanceMap = Map.Map InstanceDesc CanonizedType                               
-
-getInstanceMap :: [LInstDecl Name] -> (HsPred Name -> Maybe [HsPred Name])
-getInstanceMap ldecls = baseInstancesOf $ mkInstanceMap ldecls
+import qualified Data.Map as Map    
+import qualified Data.Graph as G
+import qualified Data.Tree as T
     
-mkInstanceMap :: [LInstDecl Name] -> InstanceMap
-mkInstanceMap ldecls = Map.fromList $ map (toPair . unLoc) ldecls
-    where toPair (InstDecl (L _ ty) _ _ _) = (toInstanceDesc pred, cty)
-              where cty@(CanonizedType (HsPredTy pred) lpreds) = canonize ty
-
-baseInstancesOf :: InstanceMap -> HsPred Name -> Maybe [HsPred Name]
-baseInstancesOf instmap pred@(HsClassP cls [lty]) = do cty <- Map.lookup desc instmap
-                                                       let HsPredTy (HsClassP _ [lty']) = ctyTy cty
-                                                           Right s = mgu [unLoc lty' :=: unLoc lty]
-                                                           cty' = substCTy s (cty, [])
-                                                       return $ map unLoc $ ctyLPreds cty'
-    where desc = toInstanceDesc pred
-
-toInstanceDesc :: HsPred Name -> InstanceDesc
-toInstanceDesc (HsClassP cls [lty]) = InstanceDesc cls (getTyConKey $ unLoc lty)
-
-getTyConKey :: HsType Name -> TyConKey
-getTyConKey (HsAppTy (L _ t) _) = getTyConKey t
-getTyConKey (HsListTy _) = TyConKeyList
-getTyConKey (HsTupleTy _ ltys) = TyConKeyTuple (length ltys)
-getTyConKey (HsTyVar tv) = TyConKeyData tv
+instDecl :: InstDecl Name -> Typing ((Cls, TyCon), PolyTy)
+instDecl (InstDecl lty binds lsigs _) = withLSrc lty $ do
+  (cls, σ) <- case unLoc lty of
+               HsForAllTy e bndr ctx (L _ (HsPredTy (HsClassP cls [lty]))) -> do σ <- fromHsType (HsForAllTy e bndr ctx lty)
+                                                                                 return (cls, σ)
+               HsPredTy (HsClassP cls [lty])                               -> do σ <- fromHsType $ unLoc lty
+                                                                                 return (cls, σ)
+               _                                                           -> raiseError InvalidInstance
+  let PolyTy _ τ = σ
+  case tyCon τ of
+    Nothing -> raiseError InvalidInstance
+    Just κ -> return ((cls, κ), σ)

@@ -2,6 +2,7 @@ module Tandoori.Typing.Repr (fromHsType) where
 
 import Tandoori.Typing
 import Tandoori.Typing.Monad
+import Tandoori.Typing.Error
 import Tandoori.GHC.Internals as GHC
     
 import qualified TyCon as GHC
@@ -14,7 +15,7 @@ import Control.Monad.Writer (lift, tell, WriterT, runWriterT)
 fromHsType :: GHC.HsType GHC.Name -> Typing PolyTy
 fromHsType ty = do (τ, ctx) <- runWriterT $ fromHsType' ty
                    return $ PolyTy ctx τ
-              
+
 fromHsType' :: GHC.HsType GHC.Name -> WriterT PolyCtx Typing Ty
 fromHsType' τ@(GHC.HsTyVar name) | isTyCon τ  = return $
                                                   case GHC.wiredInNameTyThing_maybe name of
@@ -39,9 +40,9 @@ fromHsType' (GHC.HsOpTy lty1 (L _ op) lty2)   = do τ1 <- fromHsType' $ unLoc lt
 fromHsType' (GHC.HsForAllTy _ _ lctxt lty)    = do tell =<< mapM (toPolyPred . unLoc) (unLoc lctxt)
                                                    fromHsType' (unLoc lty)
     where toPolyPred (GHC.HsClassP cls [L _ τ@(GHC.HsTyVar tv)]) | isTyVar τ = return (cls, tv)
-          toPolyPred (GHC.HsClassP cls [L _ τ]) = lift $ throwErrorLOFASZ $ "Malformed predicate"
-          toPolyPred (GHC.HsClassP cls _)       = lift $ throwErrorLOFASZ $ "Predicate with more than one type parameter"
-          toPolyPred _                          = lift $ throwErrorLOFASZ $ "Unsupported predicate"
+          toPolyPred pred@(GHC.HsClassP cls [L _ τ]) = lift $ raiseError $ OtherError "Predicates should only have type variables for parameters"
+          toPolyPred pred@(GHC.HsClassP cls _)       = lift $ raiseError $ OtherError "Predicate with more than one type parameter"
+          toPolyPred pred                            = lift $ raiseError $ OtherError "Unsupported predicate"
                                                  
                                              
                                   

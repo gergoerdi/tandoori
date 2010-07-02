@@ -1,4 +1,4 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving, NamedFieldPuns, ExistentialQuantification #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving, NamedFieldPuns #-}
 -- module Tandoori.Ty.State (Typing, runTyping,
 --                           sinkWriter,
 --                           mkTv,
@@ -8,13 +8,13 @@
 --                           withUserDecls, withMonoVars, withPolyVars,
 --                           addError, withLoc, withSrc, withLSrc) where
 module Tandoori.Typing.Monad where
--- module Tandoori.Errors (ErrorLocation(..), ErrorSource(..), ErrorMessage(..), ErrorContent(..), TyEq(..)) where
 
 import Data.Maybe
 
 import Tandoori
 import Tandoori.GHC.Internals
 import Tandoori.Typing
+import Tandoori.Typing.Error
 import Tandoori.Typing.Ctxt
 import Tandoori.Typing.MonoEnv
 import Control.Monad.RWS (RWS, runRWS, asks, local, tell, gets, modify)
@@ -26,29 +26,6 @@ import qualified Data.Map as Map
     
 import Debug.Trace
 
---- Errors    
-data ErrorSource = forall src. Outputable src => ErrorSource src                                  
-data ErrorLocation = ErrorLocation SrcSpan (Maybe ErrorSource)
-data ErrorMessage = ErrorMessage ErrorLocation ErrorContent
-
-data ErrorContent = UndefinedCon ConName
-                  | UndefinedVar VarName
-                  | UndefinedCls Cls
-                  | UnificationFailed [MonoEnv] [TyEq]
-                  | CantFitDecl PolyTy PolyTy [TyEq]
-                  | ClassCycle [Cls]
-                  | InvalidClassCtx (Cls, Tv) PolyPred
-                  | InvalidCon PolyTy
-                  | AmbiguousPredicate PolyTy PolyPred
-                  | UnfulfilledPredicate OverPred
-                  | OtherError String
-
-instance Error ErrorContent where
-    strMsg = OtherError
-                    
-instance Error ErrorMessage where
-    strMsg = ErrorMessage (ErrorLocation noSrcSpan Nothing) . OtherError
-                    
 --- State
 newtype Counter = Counter{ unCounter :: Int } deriving Enum
 
@@ -133,12 +110,6 @@ a `orRecover` b = Typing $ (unTyping a) `catchError` (\err -> do
                                                      tell [err]
                                                      unTyping b)
                            
-throwErrorLOFASZ :: String -> Typing a
-throwErrorLOFASZ err = do loc <- Typing $ asks loc
-                          src <- Typing $ asks src
-                          let msg = ErrorMessage (ErrorLocation loc src) (OtherError err)
-                          Typing $ throwError msg
-                         
 askCtxt = Typing $ asks ctxt
           
 askForcedMonoVars = Typing $ asks $ monoVars . ctxt
@@ -189,6 +160,9 @@ withClasses cis = withClassMap (Map.fromList cis) . withUserDecls vars
           addClass (cls, α) (L loc (PolyTy ctx τ)) = L loc (PolyTy ctx' τ)
               where ctx' = (cls, α):ctx
           withClassMap classmap = Typing . local (\ ctx -> ctx{classmap}) . unTyping
+
+withInstances is = Typing . local add . unTyping
+    where add r@R{instances} = r{instances = instances `Map.union` (Map.fromList is)}
 
 askInstance :: Cls -> TyCon -> Typing (Maybe PolyTy)
 askInstance cls κ = Typing $ asks (Map.lookup (cls, κ) . instances)

@@ -6,6 +6,7 @@ import Tandoori
 import Tandoori.Util
 import Tandoori.Typing
 import Tandoori.Typing.Monad
+import Tandoori.Typing.Error
 import Tandoori.Typing.MonoEnv
 import Tandoori.Typing.Ctxt
 import Tandoori.Typing.Unify
@@ -13,6 +14,7 @@ import Tandoori.Typing.Substitute
 import Tandoori.Typing.Instantiate
 import Tandoori.Typing.DataType
 import Tandoori.Typing.ClassDecl
+import Tandoori.Typing.InstanceDecl
 import Tandoori.Typing.Repr
     
 import Control.Monad.Writer
@@ -36,7 +38,11 @@ infer decls group = runTyping $ do
                       withCons cons $ do
                         cis <- classMap decls
                         withClasses cis $ do
-                          fst <$> inferValBinds (hs_valds group)
+                          insts <- mapM getInstance (hs_instds group)
+                          withInstances insts $ do
+                            fst <$> inferValBinds (hs_valds group)
+
+    where getInstance linst = withLSrc linst $ instDecl (unLoc linst)
 
 
 doLoc :: SrcSpan -> Typing a -> Typing a
@@ -157,11 +163,13 @@ inferValBinds (ValBindsOut recbinds lsigs) = do decls <- catMaybes <$> mapM from
                         where tvs = tvsOf τ
                                                                            
                     checkDecl σDecl@(PolyTy ctxDecl τDecl) σ@(PolyTy ctx τ) = do
-                      s <- fitDeclTy τDecl τ
-                      σ'@(PolyTy ctx' _) <- subst s σ
-                      ctxOk <- ctxDecl `satisfies` ctx'
-                      unless ctxOk $ do
-                        raiseError $ CantFitDecl σDecl σ' [] -- TODO
+                      fit <- runErrorT $ fitDeclTy τDecl τ
+                      case fit of
+                        Left err -> raiseError $ CantFitDecl σDecl σ
+                        Right s -> do σ'@(PolyTy ctx' _) <- subst s σ
+                                      ctxOk <- ctxDecl `satisfies` ctx'
+                                      unless ctxOk $ do
+                                        raiseError $ CantFitDecl σDecl σ'
 
                     lookupDecl :: VarName -> MaybeT Typing (Located PolyTy)
                     lookupDecl v = do (L loc (TypeSig _ lty)) <- MaybeT $ return $ find byName lsigs
@@ -258,17 +266,13 @@ unify ms σs = do eqs <- monoeqs
                  α <- mkTyVar
                  let eqs' = map (\ (PolyTy _ τ) -> (α :=: τ)) σs
                      σ = PolyTy (concatMap getCtx σs) α
-                 s <- mgu $ eqs ++ eqs'
-                 ms' <- mapM (substMono s) ms
-                 σ' <- subst s σ
-                 return (combineMonos ms', σ')
-                 -- case u of
-                 --   Left err -> do error "TODO: errors"
-                 --                  -- addError $ UnificationFailed ms eqs
-                 --                  return $ (combineMonos ms, PolyTy [] α)
-                 --   Right s -> do ms' <- mapM (substMono s) ms
-                 --                 σ' <- subst s σ
-                 --                 return (combineMonos ms', σ')
+                 u <- runErrorT $ mgu $ eqs ++ eqs'
+                 case u of
+                   Left err -> raiseError $ UnificationFailed ms err
+                   Right s -> do ms' <- mapM (substMono s) ms
+                                 σ' <- subst s σ
+                                 return (combineMonos ms', σ')
+                  `orRecover` (return (combineMonos ms, PolyTy [] α))
                         
     where getCtx (PolyTy ctx _) = ctx
 
@@ -302,7 +306,7 @@ resolvePred (cls, τ) = case τ of
                                        instData <- askInstance cls κ
                                        case instData of
                                          Nothing -> raiseError $ UnfulfilledPredicate (cls, τ)
-                                         Just (PolyTy ctx τ') -> do s <- fitDeclTy τ τ'
+                                         Just (PolyTy ctx τ') -> do Right s <- runErrorT $ fitDeclTy τ τ'
                                                                     substCtx s ctx
 
 simplifyCtx :: PolyCtx -> Typing PolyCtx

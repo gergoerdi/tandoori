@@ -1,10 +1,9 @@
-{-# LANGUAGE NamedFieldPuns #-}
-module Tandoori.Typing.ClassDecl where
--- module Tandoori.Ty.ClassDecl (BaseClasses, MethodInfo(..), getClassInfo) where
+module Tandoori.Typing.ClassDecl (classMap) where
 
 import Tandoori
 import Tandoori.Typing
 import Tandoori.Typing.Monad
+import Tandoori.Typing.Error
 import Tandoori.GHC.Internals
 import Tandoori.Typing.Repr
 
