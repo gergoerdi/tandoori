@@ -17,7 +17,6 @@ import Tandoori.GHC.Internals
 import Tandoori.Typing
 import Tandoori.Typing.Ctxt
 import Tandoori.Typing.MonoEnv
-import Control.Monad (liftM)
 import Control.Monad.RWS (RWS, runRWS, asks, local, tell, gets, modify)
 import Control.Monad.Writer (runWriterT)
 import Control.Monad.Error
@@ -34,6 +33,7 @@ data ErrorMessage = ErrorMessage ErrorLocation ErrorContent
 
 data ErrorContent = UndefinedCon ConName
                   | UndefinedVar VarName
+                  | UndefinedCls Cls
                   | UnificationFailed [MonoEnv] [TyEq]
                   | CantFitDecl PolyTy PolyTy [TyEq]
                   | ClassCycle [Cls]
@@ -109,7 +109,7 @@ mkTv = do u <- fresh
           return name
 
 mkTyVar :: Typing Ty
-mkTyVar = liftM TyVar mkTv
+mkTyVar = TyVar <$> mkTv
 
 withLoc :: SrcSpan -> Typing a -> Typing a
 withLoc loc = Typing . (local setLoc) . unTyping
@@ -128,8 +128,8 @@ raiseError err = do loc <- Typing $ asks loc
                     let msg = ErrorMessage (ErrorLocation loc src) err
                     Typing $ throwError msg
 
-orElse :: Typing a -> Typing a -> Typing a
-a `orElse` b = Typing $ (unTyping a) `catchError` (\err -> do
+orRecover :: Typing a -> Typing a -> Typing a
+a `orRecover` b = Typing $ (unTyping a) `catchError` (\err -> do
                                                      tell [err]
                                                      unTyping b)
                            
@@ -139,17 +139,14 @@ throwErrorLOFASZ err = do loc <- Typing $ asks loc
                           let msg = ErrorMessage (ErrorLocation loc src) (OtherError err)
                           Typing $ throwError msg
                          
-askCtxt = Typing $ asks ctxt                 
+askCtxt = Typing $ asks ctxt
+          
 askForcedMonoVars = Typing $ asks $ monoVars . ctxt
+                    
 askCon name = do lookup <- Typing $ asks (Map.lookup name . conmap)
                  case lookup of
                    Nothing -> raiseError $ UndefinedCon name
                    Just con -> return con
--- askBaseClassesOf cls = do f <- Typing $ asks baseClasses
---                           return $ f cls
-
--- askBaseInstancesOf pred = do f <- Typing $ asks baseInstances
---                              return $ f pred
 
 askUserDecl :: VarName -> Typing (Maybe (Located PolyTy))
 askUserDecl varname = do c <- Typing $ asks ctxt
@@ -195,3 +192,11 @@ withClasses cis = withClassMap (Map.fromList cis) . withUserDecls vars
 
 askInstance :: Cls -> TyCon -> Typing (Maybe PolyTy)
 askInstance cls κ = Typing $ asks (Map.lookup (cls, κ) . instances)
+
+askClass :: Cls -> Typing ClsInfo
+askClass cls = do ci <- Typing $ asks (Map.lookup cls . classmap)
+                  maybe (raiseError $ UndefinedCls cls) return ci
+                    
+askSupers :: Cls -> Typing [Cls]
+askSupers cls = do ci <- askClass cls
+                   clsSupers <$> askClass cls

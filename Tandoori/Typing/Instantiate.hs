@@ -18,8 +18,6 @@ lookupTv :: Tv -> Instantiate (Maybe Tv)
 lookupTv = gets . Map.lookup
 
 isPoly :: Tv -> Instantiate Bool
--- isPoly α = do f <- gets fst
---               return $ f α
 isPoly τ = do f <- ask
               return $ f τ
 
@@ -37,7 +35,7 @@ instantiateTvM α = do poly <- isPoly α
                                        
 instantiateM :: Ty -> Instantiate Ty
 instantiateM τ@(TyCon _)     = return τ
-instantiateM τ@(TyVar α)     = liftM TyVar (instantiateTvM α)
+instantiateM τ@(TyVar α)     = TyVar <$> instantiateTvM α
 instantiateM τ@(TyFun τ1 τ2) = liftM2 TyFun (instantiateM τ1) (instantiateM τ2)
 instantiateM τ@(TyApp τ1 τ2) = liftM2 TyApp (instantiateM τ1) (instantiateM τ2)
 instantiateM τ@(TyTuple _)   = return τ
@@ -50,7 +48,7 @@ instantiatePolyPredM :: PolyPred -> Instantiate PolyPred
 instantiatePolyPredM (cls, α) = do α' <- instantiateTvM α
                                    return (cls, α')
 
-runInst isPoly inst = liftM fst $ evalRWST inst isPoly Map.empty
+runInst isPoly inst = fst <$> evalRWST inst isPoly Map.empty
 
 instantiate :: (Tv -> Bool) -> Ty -> Typing Ty
 instantiate isPoly = runInst isPoly . instantiateM
