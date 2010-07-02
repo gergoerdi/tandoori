@@ -26,6 +26,7 @@ data ErrorContent = UndefinedCon ConName
                   | CantFitDecl PolyTy PolyTy
                   | ClassCycle [Cls]
                   | InvalidClassCtx (Cls, Tv) PolyPred
+                  | MissingBaseInstances OverPred PolyCtx
                   | InvalidInstance
                   | InvalidCon PolyTy
                   | AmbiguousPredicate PolyTy PolyPred

@@ -27,6 +27,7 @@ import qualified Data.Set as Set
 import qualified Data.Map as Map
 import Data.List
 
+import Tandoori.Typing.Show
 import Debug.Trace    
     
 import Tandoori.GHC.Internals
@@ -40,11 +41,33 @@ infer decls group = runTyping $ do
                         withClasses cis $ do
                           insts <- mapM getInstance (hs_instds group)
                           withInstances insts $ do
-                            fst <$> inferValBinds (hs_valds group)
+                            ctxt <- fst <$> inferValBinds (hs_valds group)
+                            withCtxt ctxt $ do
+                              mapM_ checkLInstance (hs_instds group)
+                            return ctxt
 
     where getInstance linst = withLSrc linst $ instDecl (unLoc linst)
+          checkLInstance linst = withLSrc linst $ checkInstance (unLoc linst)
 
+          checkInstance inst@(InstDecl lty binds lsigs _)  = do
+            ((cls, κ), σ) <- instDecl inst
+            let PolyTy ctx τ = σ
+            ci <- askClass cls
+            let checkSuper cls' = withLSrc lty $ do
+                 ctx' <- resolvePred (cls', τ)
+                 superOK <- ctx `satisfies` ctx'
+                 unless superOK $ do
+                   raiseError $ MissingBaseInstances (cls, τ) ctx'
+            mapM_ checkSuper (clsSupers ci)
+            PolyTy ctx' τ' <- instantiatePolyTy (const True) σ
+            checkMembers ctx' τ' ci binds
 
+          checkMembers :: PolyCtx -> Ty -> ClsInfo -> LHsBinds Name -> Typing ()
+          checkMembers ctx' τ' ci binds = return ()
+
+          -- checkMember :: PolyCtx -> Ty -> ClsInfo -> LHsBind Name -> Typing ()
+          -- checkMember ctx' τ' ci lbind = return ()
+                              
 doLoc :: SrcSpan -> Typing a -> Typing a
 doLoc srcloc m | isGoodSrcSpan srcloc  = withLoc srcloc $ m
                | otherwise             = m
@@ -302,7 +325,7 @@ subst s (PolyTy ctx τ) = do let τ' = substTy s τ
 resolvePred :: OverPred -> Typing PolyCtx
 resolvePred (cls, τ) = case τ of
                          TyVar α -> return [(cls, α)]
-                         _       -> do let κ = fromJust $ tyCon τ
+                         τ       -> do let κ = fromJust $ tyCon τ
                                        instData <- askInstance cls κ
                                        case instData of
                                          Nothing -> raiseError $ UnfulfilledPredicate (cls, τ)

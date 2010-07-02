@@ -1,5 +1,5 @@
 {-# LANGUAGE FlexibleInstances #-}
-module Tandoori.Typing.Show(printCtxt) where
+module Tandoori.Typing.Show(printCtxt, showName) where
 
 import Tandoori.GHC.Internals
 import Tandoori.Typing
@@ -89,13 +89,14 @@ instance Outputable ErrorContent where
                                               σ' <- prettyPolyTyM ty
                                               return (σDecl', σ')
     ppr (InvalidCon σ)                   = text "Invalid constructor signature" <+> text (show σ)
-    ppr (ClassCycle clss)                = text "Cycle in superclass hierarchy:" <+> sep (punctuate comma (map (quotes . text . showName) clss))
+    ppr (ClassCycle clss)                = text "Cycle in superclass hierarchy" <> colon <+> sep (punctuate comma $ map (quotes . text . showName) clss)
     ppr (AmbiguousPredicate σ (cls, α))  = text "Ambiguous predicate" <+> text (showPred (cls, τ')) <+> text "for type" <+> text (show σ')
         where (σ', τ') = runPretty $ do σ' <- prettyPolyTyM σ
                                         τ' <- prettyTyM (TyVar α)
                                         return (σ', τ')
     ppr (UnfulfilledPredicate (cls, τ))  = text "Unfulfilled predicate" <+> text (showPred (cls, τ'))
         where τ' = prettyTy τ
+    ppr (MissingBaseInstances (cls, τ) πs) = text "Missing base instances of" <+> text (showPred (cls, τ)) <> colon <+> sep (punctuate comma $ map (text . showPred) $ fromPolyCtx πs)
     ppr InvalidInstance                  = text "Invalid instance declaration"
     ppr (OtherError message  )           = text message
                                            
