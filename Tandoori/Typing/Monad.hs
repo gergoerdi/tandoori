@@ -99,16 +99,23 @@ withSrc src = Typing . (local setSrc) . unTyping
 withLSrc :: Outputable e => Located e -> Typing a -> Typing a
 withLSrc (L loc src) = withLoc loc . withSrc src
 
-raiseError :: ErrorContent -> Typing a
-raiseError err = do loc <- Typing $ asks loc
+mkErrorMsg err = do loc <- Typing $ asks loc
                     src <- Typing $ asks src
-                    let msg = ErrorMessage (ErrorLocation loc src) err
+                    return $ ErrorMessage (ErrorLocation loc src) err
+                       
+addError :: ErrorContent -> Typing ()
+addError err = do msg <- mkErrorMsg err
+                  Typing $ tell [msg]
+                       
+raiseError :: ErrorContent -> Typing a
+raiseError err = do msg <- mkErrorMsg err
                     Typing $ throwError msg
 
 orRecover :: Typing a -> Typing a -> Typing a
-a `orRecover` b = Typing $ (unTyping a) `catchError` (\err -> do
-                                                     tell [err]
-                                                     unTyping b)
+a `orRecover` b = Typing $ (unTyping a)
+                  `catchError` (\err -> do
+                     tell [err]
+                     unTyping b)
                            
 askCtxt = Typing $ asks ctxt
           

@@ -1,6 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
--- module Tandoori.Ty.Infer(inferValBinds) where
-module Tandoori.Typing.Infer where
+module Tandoori.Typing.Infer(infer) where
+-- module Tandoori.Typing.Infer where
 
 import Tandoori
 import Tandoori.Util
@@ -52,21 +52,17 @@ infer decls group = runTyping $ do
           checkInstance inst@(InstDecl lty binds lsigs _)  = do
             ((cls, κ), σ) <- instDecl inst
             let PolyTy ctx τ = σ
+            PolyTy ctx' τ' <- instantiatePolyTy (const True) σ
             ci <- askClass cls
             let checkSuper cls' = withLSrc lty $ do
-                 ctx' <- resolvePred (cls', τ)
-                 superOK <- ctx `satisfies` ctx'
-                 unless superOK $ do
-                   raiseError $ MissingBaseInstances (cls, τ) ctx'
+                  ctx' <- resolvePred (cls', τ)
+                  superOK <- ctx `satisfies` ctx'
+                  unless superOK $ do
+                    raiseError $ MissingBaseInstances (cls, τ) ctx'
+                checkMember lbind = return ()
             mapM_ checkSuper (clsSupers ci)
-            PolyTy ctx' τ' <- instantiatePolyTy (const True) σ
-            checkMembers ctx' τ' ci binds
-
-          checkMembers :: PolyCtx -> Ty -> ClsInfo -> LHsBinds Name -> Typing ()
-          checkMembers ctx' τ' ci binds = return ()
-
-          -- checkMember :: PolyCtx -> Ty -> ClsInfo -> LHsBind Name -> Typing ()
-          -- checkMember ctx' τ' ci lbind = return ()
+            (ctxt', vars) <- runWriterT $ inferBindGroup binds lsigs
+            return ()
                               
 doLoc :: SrcSpan -> Typing a -> Typing a
 doLoc srcloc m | isGoodSrcSpan srcloc  = withLoc srcloc $ m
@@ -116,15 +112,15 @@ inferExpr (HsVar x) = do decl <- askUserDecl x
                            Nothing   -> do pv <- askPolyVar x
                                            case pv of
                                              Nothing -> do monovars <- askForcedMonoVars
-                                                           (unless (x `Set.member` monovars) $
-                                                                   raiseError $ UndefinedVar x) `orRecover` return ()
+                                                           unless (x `Set.member` monovars) $
+                                                                   addError $ UndefinedVar x
                                                            alpha <- mkTyVar
                                                            return $ x `typedAs` (PolyTy [] alpha)
                                              Just (m, σ) -> do monovars <- askForcedMonoVars
                                                                let isPoly tv = not (tv `Set.member` monotyvars)
                                                                    monotyvars = Set.unions $ map tvsOfDef $ Set.toList $ monovars
                                                                σ' <- instantiatePolyTy isPoly σ
-                                                               return (m, σ') -- TODO: Instantiate m as well
+                                                               return (m, σ') -- TODO: Instantiate m as well?
                                                  where  tvsOfDef n = case getMonoVar m n of
                                                                        Nothing -> Set.empty
                                                                        Just (PolyTy _ τ) -> tvsOf τ
@@ -139,11 +135,6 @@ inferExpr (OpApp left op fixity right)      = inferExpr $ HsApp (noLoc $ HsApp o
 -- TODO:
 inferExpr (NegApp expr negfun)              = error "infer': TODO: NegApp"
 inferExpr (HsPar lexpr)                     = inferLExpr lexpr
-
--- --     where inferGuardedRhs (HsGuardedRhs srcloc expr guard) = withLoc srcloc $ do (m, t) <- infer c expr
--- --                                                                                  (m', t') <- infer c guard
--- --                                                                                  (m'', _) <- unify c [m'] [t', tyBool]
--- --                                                                                  unify c [m, m''] [t]
 
 inferLocalBinds :: HsLocalBinds Name -> Typing (Ctxt, VarSet)
 inferLocalBinds (HsValBinds vb)      = inferValBinds vb
@@ -161,49 +152,49 @@ inferValBinds (ValBindsOut recbinds lsigs) = do decls <- catMaybes <$> mapM from
           fromSig _ = return Nothing
 
           inferBindGroups [] = lift $ askCtxt
-          inferBindGroups (b:bs) = do ctxt' <- inferBindGroup b
+          inferBindGroups (b:bs) = do ctxt' <- inferBindGroup b lsigs
                                       sinkWriter (withCtxt ctxt') $ inferBindGroups bs
 
-          inferBindGroup :: LHsBinds Name -> VarCollector Ctxt
-          inferBindGroup lbindbag = do (m, vars) <- listen $ inferBinds lbindbag
-                                       tell vars
-                                       let varmap = map (\ v -> (v, fromJust $ getMonoVar m v)) $ Set.toList vars
-                                       -- TODO: Location
-                                       polyvars <- catMaybes <$> mapM (lift . toPoly m) varmap
-                                       addPolyVars' polyvars
-              where toPoly m (v, σ) = do lookup <- runMaybeT $ lookupDecl v
-                                         case lookup of
-                                           Nothing -> do checkCtxAmbiguity σ
-                                                         return $ Just (v, (m, σ))
-                                           Just (L loc σDecl) -> doLoc loc $ do
-                                                                    checkDecl σDecl σ
-                                                                    checkCtxAmbiguity σDecl
-                                                                    return Nothing
+inferBindGroup :: LHsBinds Name -> [LSig Name] -> VarCollector Ctxt
+inferBindGroup lbindbag lsigs = do (m, vars) <- listen $ inferBinds lbindbag
+                                   tell vars
+                                   let varmap = map (\ v -> (v, fromJust $ getMonoVar m v)) $ Set.toList vars
+                                   -- TODO: Location
+                                   polyvars <- catMaybes <$> mapM (lift . toPoly m) varmap
+                                   addPolyVars' polyvars
+    where toPoly m (v, σ) = do lookup <- runMaybeT $ lookupDecl v
+                               case lookup of
+                                 Nothing -> do checkCtxAmbiguity σ
+                                               return $ Just (v, (m, σ))
+                                 Just (L loc σDecl) -> doLoc loc $ do
+                                                         checkDecl σDecl σ
+                                                         checkCtxAmbiguity σDecl
+                                                         return Nothing
 
-                    checkCtxAmbiguity σ@(PolyTy ctx τ) = forM_ ctx $ \(cls, α) -> do
-                                                           unless (α `Set.member` tvs) $
-                                                             raiseError $ AmbiguousPredicate σ (cls, α)
-                        where tvs = tvsOf τ
+          checkCtxAmbiguity σ@(PolyTy ctx τ) = forM_ ctx $ \(cls, α) -> do
+                                                 unless (α `Set.member` tvs) $
+                                                   raiseError $ AmbiguousPredicate σ (cls, α)
+              where tvs = tvsOf τ
                                                                            
-                    checkDecl σDecl@(PolyTy ctxDecl τDecl) σ@(PolyTy ctx τ) = do
-                      fit <- runErrorT $ fitDeclTy τDecl τ
-                      case fit of
-                        Left err -> raiseError $ CantFitDecl σDecl σ
-                        Right s -> do σ'@(PolyTy ctx' _) <- subst s σ
-                                      ctxOk <- ctxDecl `satisfies` ctx'
-                                      unless ctxOk $ do
-                                        raiseError $ CantFitDecl σDecl σ'
+          checkDecl σDecl@(PolyTy ctxDecl τDecl) σ@(PolyTy ctx τ) = do
+            fit <- runErrorT $ fitDeclTy τDecl τ
+            case fit of
+              Left err -> raiseError $ CantFitDecl σDecl σ
+              Right s -> do σ'@(PolyTy ctx' _) <- subst s σ
+                            ctxOk <- ctxDecl `satisfies` ctx'
+                            unless ctxOk $ do
+                              raiseError $ CantFitDecl σDecl σ'
 
-                    lookupDecl :: VarName -> MaybeT Typing (Located PolyTy)
-                    lookupDecl v = do (L loc (TypeSig _ lty)) <- MaybeT $ return $ find byName lsigs
-                                      σDecl <- lift $ fromHsType $ unLoc lty
-                                      return $ L loc σDecl
-                        where byName (L _ (TypeSig (L _ name) _)) = name == v
+          lookupDecl :: VarName -> MaybeT Typing (Located PolyTy)
+          lookupDecl v = do (L loc (TypeSig _ lty)) <- MaybeT $ return $ find byName lsigs
+                            σDecl <- lift $ fromHsType $ unLoc lty
+                            return $ L loc σDecl
+              where byName (L _ (TypeSig (L _ name) _)) = name == v
 
-                    addPolyVars' :: [(VarName, (MonoEnv, PolyTy))] -> VarCollector Ctxt
-                    addPolyVars' polyvars = do ctxt <- lift askCtxt
-                                               let ctxt' = addPolyVars ctxt polyvars
-                                               return ctxt'                                                        
+          addPolyVars' :: [(VarName, (MonoEnv, PolyTy))] -> VarCollector Ctxt
+          addPolyVars' polyvars = do ctxt <- lift askCtxt
+                                     let ctxt' = addPolyVars ctxt polyvars
+                                     return ctxt'                                                        
                                                                     
 inferBinds :: LHsBinds Name -> VarCollector MonoEnv
 inferBinds lbindbag = do let lbinds = bagToList lbindbag

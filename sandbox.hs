@@ -76,7 +76,7 @@ main' _ = error "Usage: tandoori filename.hs"
 
 main = do args <- getArgs
           main' args
-
+          
 test = main' [src_filename]                
                 
 -- test = do p <- main' ["input/cikk.hs"]

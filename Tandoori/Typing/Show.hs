@@ -2,13 +2,17 @@
 module Tandoori.Typing.Show(printCtxt, showName) where
 
 import Tandoori.GHC.Internals
+import Tandoori
 import Tandoori.Typing
 import Tandoori.Typing.Pretty
 import Tandoori.Typing.Error
 import Tandoori.Typing.Ctxt
+import Tandoori.Typing.MonoEnv
 
 import Control.Applicative    
 import qualified Data.Map as Map    
+import qualified Data.Set as Set
+import qualified Text.PrettyPrint.Boxes as Box
 import Data.List    
     
 data ShowTyCtxt = C { isLeftOfFun :: Bool, isRightOfApp :: Bool }
@@ -42,7 +46,9 @@ showTy' c τ@(TyApp τ1 τ2) | isTyConList τ1 = "[" ++ showFunRight c τ2 ++ "]
 showTy' c (TyTuple n) = "(" ++ replicate (pred n) ',' ++ ")"
                                                
 showName :: Name -> String
-showName name = occNameString $ nameOccName name
+showName name = if isSymOcc occName || isDataSymOcc occName then "(" ++ s ++ ")" else s
+  where occName = nameOccName name
+        s = occNameString occName
 
 showPreds :: OverCtx -> String
 showPreds [] = ""
@@ -82,8 +88,10 @@ instance Outputable TypingError where
 instance Outputable ErrorContent where
     ppr (UndefinedCon name)              = text "Reference to undefined constructor" <+> quotes (ppr name)
     ppr (UndefinedVar name)              = text "Reference to undefined variable" <+> quotes (ppr name)
-    ppr (UnificationFailed ms tyerr)     = ppr tyerr'
-        where tyerr' = runPretty $ prettyTypingErrorM tyerr
+    ppr (UnificationFailed ms tyerr)     = ppr tyerr' $$ text (Box.render $ boxMonos ms')
+        where (ms', tyerr') = runPretty $ do tyerr' <- prettyTypingErrorM tyerr
+                                             ms' <- mapM prettyMonoM ms
+                                             return (ms', tyerr')
     ppr (CantFitDecl tyDecl ty)          = text "Declared type" <+> text (show tyDecl') <+> text "is not a special case of inferred type" <+> text (show ty')
         where (tyDecl', ty') = runPretty $ do σDecl' <- prettyPolyTyM tyDecl
                                               σ' <- prettyPolyTyM ty
@@ -107,26 +115,24 @@ prettyTyEqM (t :=: u) = do t' <- prettyTyM t
                            u' <- prettyTyM u
                            return $ t' :=: u'
                       
+prettyMonoM = mapMonoM prettyPolyTyM
 
 printCtxt :: Ctxt -> IO ()
-printCtxt c = mapM_  print $ ((map (\ (name, (m, σ)) -> (showName name, σ)) $ Map.toList $ polyVars c) ++
-                              (map (\ (name, (L _ σ)) -> (showName name, σ)) $ Map.toList $ userDecls c))
-    
--- printCtxt :: Ctxt -> IO ()             
--- printCtxt c = do print $ tabTy (rowsDecl ++ rowsInfer)
+printCtxt c = Box.printBox $ boxName Box.<+> boxType
+    where pairs = (map (\ (name, (m, σ)) -> (showName name, σ)) $ Map.toList $ polyVars c) ++
+                  (map (\ (name, (L _ σ)) -> (showName name, σ)) $ Map.toList $ userDecls c)
+          pairs' = map (fmap (runPretty . prettyPolyTyM)) pairs
+          boxName = Box.vcat Box.left $ map (Box.text . fst) pairs'
+          boxType = Box.vcat Box.left $ map (\ (name, σ) -> Box.text "::" Box.<+> Box.text (show σ)) pairs'
+
+boxMonos :: [MonoEnv] -> Box.Box
+boxMonos ms = Box.hsep 2 Box.top $ boxNames:(map boxTypes ms)
+    where vars :: [VarName]
+          vars = Set.toList $ Set.unions $ map (Set.fromList . map fst . getMonoVars) ms
+          
+          boxType m v = case getMonoVar m v of
+                          Nothing -> Box.text ""
+                          Just σ -> Box.text $ show σ
                           
---     where showNameShort qname = occNameString $ nameOccName qname
---           showTy ty = show $ prettyTy ty
---           showCTy cty = show $ prettyTy $ uncanonize cty
---           --showTy ty = showSDocUnqual $ ppr $ prettyTy ty
-                                
---           rowFromInfer name (m, cty) = (showNameShort name, showCTy cty)
---           rowFromDecl name cty = (showNameShort name, showCTy cty)
-
---           rowTy (sname, sty) = [sname, "::", sty]
---           tabTy rows = fromRows $ map rowTy rows
-                                
---           rowsInfer = map (uncurry rowFromInfer) $ Map.toList $ polyVars c
---           rowsDecl = map (uncurry rowFromDecl) $ map (\ (name, lty) ->  (name, unLoc lty)) $ Map.toList $ userDecls c
-
-                                  
+          boxNames = Box.vcat Box.left $ map (Box.text . showName) vars
+          boxTypes m = Box.vcat Box.left $ map (boxType m) vars          
