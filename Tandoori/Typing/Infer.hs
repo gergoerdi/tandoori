@@ -123,9 +123,9 @@ inferExpr (HsVar x) = do decl <- askUserDecl x
                                                                    monotyvars = Set.unions $ map tvsOfDef $ Set.toList $ monovars
                                                                σ' <- instantiatePolyTy isPoly σ
                                                                m ⊢ σ' -- TODO: Instantiate m as well?
-                                                 where  tvsOfDef n = case getMonoVar m n of
-                                                                       Nothing -> Set.empty
-                                                                       Just (PolyTy _ τ) -> tvsOf τ
+                                                 where tvsOfDef n = case getMonoVar m n of
+                                                                      Nothing -> Set.empty
+                                                                      Just (PolyTy _ τ) -> tvsOf τ
                              
 inferExpr (HsLet binds lexpr)               = do (ctxt, vars) <- inferLocalBinds binds
                                                  (m, σ) <- withCtxt ctxt $ inferLExpr lexpr
@@ -274,8 +274,9 @@ inferPat (ListPat lpats _)                 = do (ms, σs) <- unzip <$> mapM infe
                                                 m ⊢ ptyList σ
 inferPat (NPat overlit _ _)                = justType <$> typeOfOverLit overlit
                                              
--- (⊢) :: MonoEnv -> PolyTy -> Typing (MonoEnv, PolyTy)                                             
-m ⊢ σ = return (m, σ)
+(⊢) :: MonoEnv -> PolyTy -> Typing (MonoEnv, PolyTy)                                             
+m ⊢ σ = do let m' = setMonoTy m σ
+           return (m', σ)
                                              
 unify :: [MonoEnv] -> [PolyTy] -> Typing (MonoEnv, PolyTy)
 unify ms σs = do eqs <- monoeqs

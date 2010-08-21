@@ -89,8 +89,8 @@ instance Outputable ErrorContent where
     ppr (UndefinedCon name)              = text "Reference to undefined constructor" <+> quotes (ppr name)
     ppr (UndefinedVar name)              = text "Reference to undefined variable" <+> quotes (ppr name)
     ppr (UnificationFailed ms tyerr)     = ppr tyerr' $$ text (Box.render $ boxMonos ms')
-        where (ms', tyerr') = runPretty $ do tyerr' <- prettyTypingErrorM tyerr
-                                             ms' <- mapM prettyMonoM ms
+        where (ms', tyerr') = runPretty $ do ms' <- mapM prettyMonoM ms
+                                             tyerr' <- prettyTypingErrorM tyerr
                                              return (ms', tyerr')
     ppr (CantFitDecl tyDecl ty)          = text "Declared type" <+> text (show tyDecl') <+> text "is not a special case of inferred type" <+> text (show ty')
         where (tyDecl', ty') = runPretty $ do σDecl' <- prettyPolyTyM tyDecl
@@ -134,5 +134,5 @@ boxMonos ms = Box.hsep 2 Box.top $ boxNames:(map boxTypes ms)
                                      Nothing -> ""
                                      Just σ  -> show σ
                           
-          boxNames = Box.vcat Box.left $ map ((Box.<+> Box.text "::").(Box.text . showName)) vars
-          boxTypes m = Box.vcat Box.left $ map (boxType m) vars          
+          boxNames = Box.vcat Box.left $ (Box.text ""):(map ((Box.<+> Box.text "::").(Box.text . showName)) vars)
+          boxTypes m = Box.vcat Box.left $ (Box.text $ maybe "" show $ getMonoTy m):(map (boxType m) vars)          
