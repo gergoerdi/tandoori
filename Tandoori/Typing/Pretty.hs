@@ -48,9 +48,9 @@ prettyNameM name | isPrettyName name = return name
 --           prettyLPredM lpred = liftM genLoc $ prettyPredM $ unLoc lpred
 
 prettyTyM (TyVar α)     = liftM TyVar (prettyNameM α)
-prettyTyM (TyCon con)   = return $ TyCon con
 prettyTyM (TyFun τ1 τ2) = liftM2 TyFun (prettyTyM τ1) (prettyTyM τ2)
 prettyTyM (TyApp τ1 τ2) = liftM2 TyApp (prettyTyM τ1) (prettyTyM τ2)
+prettyTyM τ             = return τ
 
 prettyPolyTyM (PolyTy ctx τ) = liftM2 PolyTy (mapM prettyPolyPredM ctx) (prettyTyM τ)
 

@@ -130,9 +130,9 @@ boxMonos ms = Box.hsep 2 Box.top $ boxNames:(map boxTypes ms)
     where vars :: [VarName]
           vars = Set.toList $ Set.unions $ map (Set.fromList . map fst . getMonoVars) ms
           
-          boxType m v = case getMonoVar m v of
-                          Nothing -> Box.text ""
-                          Just σ -> Box.text $ show σ
+          boxType m v = Box.text $ case getMonoVar m v of
+                                     Nothing -> ""
+                                     Just σ  -> show σ
                           
-          boxNames = Box.vcat Box.left $ map (Box.text . showName) vars
+          boxNames = Box.vcat Box.left $ map ((Box.<+> Box.text "::").(Box.text . showName)) vars
           boxTypes m = Box.vcat Box.left $ map (boxType m) vars          

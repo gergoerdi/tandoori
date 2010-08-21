@@ -61,7 +61,7 @@ infer decls group = runTyping $ do
                     raiseError $ MissingBaseInstances (cls, τ) ctx'
                 checkMember lbind = return ()
             mapM_ checkSuper (clsSupers ci)
-            (ctxt', vars) <- runWriterT $ inferBindGroup binds lsigs
+            (ctxt', vars) <- listenVars $ inferBindGroup binds lsigs
             return ()
                               
 doLoc :: SrcSpan -> Typing a -> Typing a
@@ -86,25 +86,27 @@ inferExpr (HsVar name) | isDataConName name = do τ <- (instantiate (const True)
                                                  return $ justType $ PolyTy [] τ
 inferExpr (ExplicitList _ lexprs)           = do (ms, σs) <- unzip <$> mapM inferLExpr lexprs
                                                  (m, σ) <- unify ms σs
-                                                 return (m, ptyList σ)
+                                                 m ⊢ ptyList σ
 inferExpr (ExplicitTuple tupargs _ )        = do (ms, σs) <- unzip <$> mapM inferTupArg tupargs
-                                                 unify ms [ptyTuple σs]
+                                                 (m, σ) <- unify ms [ptyTuple σs]
+                                                 m ⊢ σ
     where inferTupArg (Present lexpr) = inferLExpr lexpr                                                                                           
 
 inferExpr (HsApp ltyFun ltyParam)           = do (m1, σ1) <- inferLExpr ltyFun
                                                  (m2, σ2) <- inferLExpr ltyParam
-                                                 alpha <- mkTyVar
-                                                 (m, σ) <- unify [m1, m2] [σ1, ptyCurryFun [σ2, PolyTy [] alpha]]
+                                                 α <- mkTyVar
+                                                 (m, σ) <- unify [m1, m2] [σ1, ptyCurryFun [σ2, PolyTy [] α]]
                                                  case σ of
-                                                   (PolyTy ctx (TyFun τ3 τ4)) -> return (m, PolyTy ctx τ4)
-                                                   _                           -> do -- TODO: Error
-                                                                                     beta <- mkTyVar
-                                                                                     return (m, PolyTy [] beta)
+                                                   (PolyTy ctx (TyFun τ3 τ4)) -> m ⊢ PolyTy ctx τ4
+                                                   _                          -> do -- TODO: Error
+                                                                                    β <- mkTyVar
+                                                                                    m ⊢ PolyTy [] β
                                                                  
 inferExpr (HsLam (MatchGroup lmatches _))   = do (ms, σs) <- unzip <$> mapM inferLMatch lmatches
-                                                 unify ms σs
+                                                 (m, σ) <- unify ms σs
+                                                 m ⊢ σ
 
-                     -- TODO: move this to askPolyVar, kill askUserDecl
+-- TODO: move this to askPolyVar, kill askUserDecl
 inferExpr (HsVar x) = do decl <- askUserDecl x
                          case decl of
                            Just lσ  -> do σ' <- instantiatePolyTy (const True) (unLoc lσ)
@@ -120,7 +122,7 @@ inferExpr (HsVar x) = do decl <- askUserDecl x
                                                                let isPoly tv = not (tv `Set.member` monotyvars)
                                                                    monotyvars = Set.unions $ map tvsOfDef $ Set.toList $ monovars
                                                                σ' <- instantiatePolyTy isPoly σ
-                                                               return (m, σ') -- TODO: Instantiate m as well?
+                                                               m ⊢ σ' -- TODO: Instantiate m as well?
                                                  where  tvsOfDef n = case getMonoVar m n of
                                                                        Nothing -> Set.empty
                                                                        Just (PolyTy _ τ) -> tvsOf τ
@@ -129,7 +131,7 @@ inferExpr (HsLet binds lexpr)               = do (ctxt, vars) <- inferLocalBinds
                                                  (m, σ) <- withCtxt ctxt $ inferLExpr lexpr
                                                  let isOutsideVisible var _ = not(var `Set.member` vars)
                                                      m' = filterMonoVars isOutsideVisible m
-                                                 return (m', σ)
+                                                 m' ⊢ σ
 
 inferExpr (OpApp left op fixity right)      = inferExpr $ HsApp (noLoc $ HsApp op left) right
 -- TODO:
@@ -144,23 +146,26 @@ inferLocalBinds EmptyLocalBinds      = do ctxt <- askCtxt
 
 inferValBinds :: HsValBinds Name -> Typing (Ctxt, VarSet)
 inferValBinds (ValBindsOut recbinds lsigs) = do decls <- catMaybes <$> mapM fromSig lsigs
-                                                withUserDecls decls $ runWriterT $ inferBindGroups lbindbags
+                                                withUserDecls decls $ listenVars $ inferBindGroups lbindbags
     where lbindbags = map snd recbinds
 
           fromSig (L srcloc (TypeSig (L _ name) (L _ ty))) = do τ <- fromHsType ty
                                                                 return $ Just $ (name, L srcloc τ)
           fromSig _ = return Nothing
 
-          inferBindGroups [] = lift $ askCtxt
+          inferBindGroups [] = askCtxt
           inferBindGroups (b:bs) = do ctxt' <- inferBindGroup b lsigs
-                                      sinkWriter (withCtxt ctxt') $ inferBindGroups bs
+                                      withCtxt ctxt' $ inferBindGroups bs
 
-inferBindGroup :: LHsBinds Name -> [LSig Name] -> VarCollector Ctxt
-inferBindGroup lbindbag lsigs = do (m, vars) <- listen $ inferBinds lbindbag
-                                   tell vars
-                                   let varmap = map (\ v -> (v, fromJust $ getMonoVar m v)) $ Set.toList vars
+fromJust' (Nothing) = error "foo"
+fromJust' (Just x) = x
+
+inferBindGroup :: LHsBinds Name -> [LSig Name] -> Typing Ctxt
+inferBindGroup lbindbag lsigs = do (m, vars) <- listenVars $ inferBinds lbindbag
+                                   tellVars vars
+                                   let varmap = map (\ v -> (v, fromJust' $ getMonoVar m v)) $ Set.toList vars
                                    -- TODO: Location
-                                   polyvars <- catMaybes <$> mapM (lift . toPoly m) varmap
+                                   polyvars <- catMaybes <$> mapM (toPoly m) varmap
                                    addPolyVars' polyvars
     where toPoly m (v, σ) = do lookup <- runMaybeT $ lookupDecl v
                                case lookup of
@@ -191,75 +196,70 @@ inferBindGroup lbindbag lsigs = do (m, vars) <- listen $ inferBinds lbindbag
                             return $ L loc σDecl
               where byName (L _ (TypeSig (L _ name) _)) = name == v
 
-          addPolyVars' :: [(VarName, (MonoEnv, PolyTy))] -> VarCollector Ctxt
-          addPolyVars' polyvars = do ctxt <- lift askCtxt
+          addPolyVars' :: [(VarName, (MonoEnv, PolyTy))] -> Typing Ctxt
+          addPolyVars' polyvars = do ctxt <- askCtxt
                                      let ctxt' = addPolyVars ctxt polyvars
                                      return ctxt'                                                        
                                                                     
-inferBinds :: LHsBinds Name -> VarCollector MonoEnv
+inferBinds :: LHsBinds Name -> Typing MonoEnv
 inferBinds lbindbag = do let lbinds = bagToList lbindbag
                          ms <- mapM inferLBind lbinds
-                         (m, _) <- lift $ unify ms []
+                         (m, _) <- unify ms []
                          return m
               
-type VarSet = Set.Set VarName    
-type VarCollector a = WriterT VarSet Typing a
-
-withLSrc' l collect = sinkWriter (withLSrc l) $ collect
-    
-inferLBind :: (LHsBind Name) -> VarCollector MonoEnv
-inferLBind lbind = withLSrc' lbind $ inferBind $ unLoc lbind
+inferLBind :: (LHsBind Name) -> Typing MonoEnv
+inferLBind lbind = withLSrc lbind $ inferBind $ unLoc lbind
                                                                                         
-inferBind :: (HsBind Name) -> VarCollector MonoEnv
-inferBind PatBind{pat_lhs = lpat, pat_rhs = grhss} = do ((m, σ), vars) <- listen $ inferLPat lpat -- TODO: add new vars to ctxt
-                                                        tell vars
-                                                        (m', σ') <- lift $ withMonoVars vars $ inferGRhss grhss
-                                                        (m'', _) <- lift $ unify [m, m'] [σ, σ']
+inferBind :: (HsBind Name) -> Typing MonoEnv
+inferBind PatBind{pat_lhs = lpat, pat_rhs = grhss} = do ((m, σ), vars) <- listenVars $ inferLPat lpat -- TODO: add new vars to ctxt
+                                                        tellVars vars
+                                                        (m', σ') <- withMonoVars vars $ inferGRhss grhss
+                                                        (m'', _) <- unify [m, m'] [σ, σ']
                                                         return m''
 inferBind VarBind{} = error "VarBind"
-inferBind FunBind{fun_matches = MatchGroup lmatches _, fun_id = (L _ name)} = do tell $ Set.singleton name
-                                                                                 (ms, ts) <- lift $ withMonoVars (Set.singleton name) $ do
-                                                                                              unzip <$> mapM inferLMatch lmatches
-                                                                                 (m, t) <- lift $ unify ms ts
-                                                                                 return $ addMonoVar m (name, t)
+inferBind FunBind{fun_matches = MatchGroup lmatches _, fun_id = (L _ name)} = do tellVar name
+                                                                                 (ms, σs) <- withMonoVars (Set.singleton name) $ censorVars $ 
+                                                                                            unzip <$> mapM inferLMatch lmatches
+                                                                                 (m, σ) <- unify ms σs
+                                                                                 return $ addMonoVar m (name, σ)
 
 inferLMatch :: (LMatch Name) -> Typing (MonoEnv, PolyTy)
 inferLMatch lmatch = doLoc (getLoc lmatch) $ inferMatch $ unLoc lmatch
                                
 inferMatch :: (Match Name) -> Typing (MonoEnv, PolyTy)
-inferMatch (Match lpats _ grhss) = do ((ms, σs), vars) <- runWriterT $ do
-                                                           unzip <$> mapM inferLPat lpats
+inferMatch (Match lpats _ grhss) = do ((ms, σs), vars) <- listenVars $ (unzip <$> mapM inferLPat lpats)
                                       (m, σ) <- withMonoVars vars $ inferGRhss grhss
                                       (m', σ') <- unify (m:ms) [ptyCurryFun (σs ++ [σ])]
                                       let m'' = filterMonoVars (\ v ty -> not (Set.member v vars)) m'
-                                      return $ (m'', σ')
+                                      m'' ⊢ σ'
 
 
 inferGRhs (GRHS _ lexpr) = inferLExpr lexpr
 inferGRhss (GRHSs lgrhss _) = do (ms, σs) <- unzip <$> mapM (inferGRhs . unLoc) lgrhss
-                                 unify ms σs
+                                 (m, σ) <- unify ms σs
+                                 m ⊢ σ
 
                                              
-inferLPat :: Located (Pat Name) -> VarCollector (MonoEnv, PolyTy)
-inferLPat lpat = withLSrc' lpat $ inferPat $ unLoc lpat
+inferLPat :: Located (Pat Name) -> Typing (MonoEnv, PolyTy)
+inferLPat lpat = withLSrc lpat $ inferPat $ unLoc lpat
                                      
-inferPat :: Pat Name -> VarCollector (MonoEnv, PolyTy)
-inferPat (AsPat (L _ name) lpat)           = do tell $ Set.singleton name
+inferPat :: Pat Name -> Typing (MonoEnv, PolyTy)
+inferPat (AsPat (L _ name) lpat)           = do tellVar name
                                                 (m, σ) <- inferLPat lpat                                                
                                                 let m' = addMonoVar m (name, σ)
-                                                return (m', σ)
+                                                m' ⊢ σ
 inferPat (ParPat lpat)                     = inferLPat lpat
-inferPat (WildPat _)                       = do alpha <- lift mkTyVar
+inferPat (WildPat _)                       = do alpha <- mkTyVar
                                                 return $ justType $ (PolyTy [] alpha)
-inferPat (VarPat name)                     = do tell $ Set.singleton name
-                                                alpha <- lift mkTyVar
+inferPat (VarPat name)                     = do tellVar name
+                                                alpha <- mkTyVar
                                                 return $ name `typedAs` (PolyTy [] alpha)
 inferPat (LitPat lit)                      = return $ justType $ PolyTy [] $ typeOfLit lit
-inferPat (ConPatIn (L _ con) details)  = do τCon <- lift $ askCon con -- TODO: errors
+inferPat (ConPatIn (L _ con) details)  = do τCon <- askCon con -- TODO: errors
                                             (ms, σs) <- unzip <$> mapM inferLPat lpats
-                                            alpha <- lift mkTyVar
-                                            (m, σ) <- lift $ unify ms [PolyTy [] τCon, ptyCurryFun (σs ++ [PolyTy [] alpha])]
-                                            return $ (m, ptyFunResult σ)
+                                            alpha <- mkTyVar
+                                            (m, σ) <- unify ms [PolyTy [] τCon, ptyCurryFun (σs ++ [PolyTy [] alpha])]
+                                            m ⊢ ptyFunResult σ
     where lpats = case details of
                     PrefixCon lpats -> lpats
                     InfixCon lp lp' -> [lp, lp']
@@ -268,13 +268,15 @@ inferPat (ConPatIn (L _ con) details)  = do τCon <- lift $ askCon con -- TODO: 
           tyRightmost τ             = τ
                                                  
 inferPat (TuplePat lpats _ _)              = do (ms, σs) <- unzip <$> mapM inferLPat lpats
-                                                return (combineMonos ms, ptyTuple σs)
+                                                combineMonos ms ⊢ ptyTuple σs
 inferPat (ListPat lpats _)                 = do (ms, σs) <- unzip <$> mapM inferLPat lpats
-                                                (m', σ') <- lift $ unify ms σs
-                                                return (m', ptyList σ')
-inferPat (NPat overlit _ _)                = justType <$> (lift $ typeOfOverLit overlit)
-
-                          
+                                                (m, σ) <- unify ms σs
+                                                m ⊢ ptyList σ
+inferPat (NPat overlit _ _)                = justType <$> typeOfOverLit overlit
+                                             
+-- (⊢) :: MonoEnv -> PolyTy -> Typing (MonoEnv, PolyTy)                                             
+m ⊢ σ = return (m, σ)
+                                             
 unify :: [MonoEnv] -> [PolyTy] -> Typing (MonoEnv, PolyTy)
 unify ms σs = do eqs <- monoeqs
                  α <- mkTyVar

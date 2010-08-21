@@ -17,26 +17,28 @@ import Tandoori.Typing
 import Tandoori.Typing.Error
 import Tandoori.Typing.Ctxt
 import Tandoori.Typing.MonoEnv
-import Control.Monad.RWS (RWS, runRWS, asks, local, tell, gets, modify)
+import Control.Monad.RWS (RWS, runRWS, ask, asks, local, tell, listen, get, gets, put, modify)
 import Control.Monad.Writer (runWriterT)
 import Control.Monad.Error
 import Control.Applicative
+import Data.Monoid
+import Data.Set (Set)
 import qualified Data.Set as Set
+import Data.Map (Map)
 import qualified Data.Map as Map
     
+
+import Tandoori.Typing.Show
 import Debug.Trace
 
---- State
-newtype Counter = Counter{ unCounter :: Int } deriving Enum
-
 --- Reader
-type KindMap = Map.Map TvName Int -- TODO: DataName
-type ConMap = Map.Map ConName Ty
+type KindMap = Map TvName Int -- TODO: DataName
+type ConMap = Map ConName Ty
 data ClsInfo = ClsInfo { clsSupers :: [Cls],
                          clsParam :: Tv,
-                         clsMeths :: Map.Map VarName (Located PolyTy) }    
-type ClsMap = Map.Map Cls ClsInfo
-type InstMap = Map.Map (Cls, TyCon) PolyTy    
+                         clsMeths :: Map VarName (Located PolyTy) }    
+type ClsMap = Map Cls ClsInfo
+type InstMap = Map (Cls, TyCon) PolyTy    
     
 data R = R { loc :: SrcSpan,
              src :: Maybe ErrorSource,
@@ -48,11 +50,18 @@ data R = R { loc :: SrcSpan,
                         
              ctxt :: Ctxt }
 
+--- Writer
+type VarSet = Set VarName
+type W = ([ErrorMessage], VarSet)
+
+--- State
+newtype Counter = Counter{ unCounter :: Int } deriving Enum
+
 --- The Typing monad       
-newtype Typing a = Typing { unTyping :: ErrorT ErrorMessage (RWS R [ErrorMessage] Counter) a} deriving (Monad, Functor)
+newtype Typing a = Typing { unTyping :: ErrorT ErrorMessage (RWS R W Counter) a} deriving (Monad, Functor)
 
 runTyping :: Typing a -> (Maybe a, [ErrorMessage])
-runTyping typing = let (result, s', output) = (runRWS . runErrorT . unTyping) typing' r s
+runTyping typing = let (result, s', (output, _)) = (runRWS . runErrorT . unTyping) typing' r s
                    in case result of
                         Left err -> (Nothing, err:output)
                         Right result -> (Just result, output)
@@ -105,16 +114,38 @@ mkErrorMsg err = do loc <- Typing $ asks loc
                        
 addError :: ErrorContent -> Typing ()
 addError err = do msg <- mkErrorMsg err
-                  Typing $ tell [msg]
+                  tellErrors [msg]
+                  
+tellErrors :: [ErrorMessage] -> Typing ()                  
+tellErrors msgs = Typing $ tell (msgs, mempty)
                        
+tellVar :: VarName -> Typing ()
+tellVar var = tellVars $ Set.singleton var
+                      
+tellVars :: VarSet -> Typing ()
+tellVars vars = Typing $ tell (mempty, vars)
+
+listenVars :: Typing a -> Typing (a, VarSet)
+listenVars f = Typing $ do r <- ask
+                           s <- get
+                           let (res, s', (errs, vars)) = (runRWS . runErrorT . unTyping) f r s
+                           put s'
+                           unTyping $ tellErrors errs
+                           case res of
+                               Left err -> throwError err
+                               Right x -> return (x, vars)
+                           
+censorVars :: Typing a -> Typing a
+censorVars = liftM fst . listenVars
+                      
 raiseError :: ErrorContent -> Typing a
 raiseError err = do msg <- mkErrorMsg err
                     Typing $ throwError msg
 
 orRecover :: Typing a -> Typing a -> Typing a
 a `orRecover` b = Typing $ (unTyping a)
-                  `catchError` (\err -> do
-                     tell [err]
+                  `catchError` (\err -> do                                     
+                     unTyping $ tellErrors [err]
                      unTyping b)
                            
 askCtxt = Typing $ asks ctxt
@@ -138,7 +169,7 @@ withUserDecls :: [(VarName, Located PolyTy)] -> Typing a -> Typing a
 withUserDecls binds = Typing . local add . unTyping
     where add r@R{ctxt} = r{ ctxt = addUserDecls ctxt binds }
 
-withMonoVars :: Set.Set VarName -> Typing a -> Typing a
+withMonoVars :: Set VarName -> Typing a -> Typing a
 withMonoVars vars = Typing . local add . unTyping
     where add r@R{ctxt} = r{ ctxt = addMonoVars ctxt vars }
 
@@ -149,10 +180,6 @@ withPolyVars vars = Typing . local add . unTyping
 withCtxt :: Ctxt -> Typing a -> Typing a
 withCtxt ctxt = Typing . local change . unTyping
     where change r = r{ ctxt = ctxt }
-
-sinkWriter xform writer = do (r, w) <- lift $ xform $ runWriterT writer
-                             tell w
-                             return r
 
 withCons :: [(VarName, Ty)] -> Typing a -> Typing a
 withCons cons = Typing . local add . unTyping
