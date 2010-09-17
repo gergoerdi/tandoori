@@ -1,6 +1,7 @@
-module Tandoori.Typing.MonoEnv (MonoEnv, getMonoTy, setMonoTy, mapMonoM, getMonoVars, getMonoVar, justType, typedAs, addMonoVar, filterMonoVars, combineMonos) where
+module Tandoori.Typing.MonoEnv (MonoEnv, noVars, setMonoSrc, getMonoSrc, getMonoTy, setMonoTy, mapMonoM, getMonoVars, getMonoVar, justType, typedAs, addMonoVar, filterMonoVars, combineMonos) where
 
 import Tandoori
+import Tandoori.GHC.Internals (SDoc, ppr)
 import Tandoori.Typing
 
 import Data.Monoid    
@@ -10,15 +11,23 @@ import qualified Data.Map as Map
 import Data.Maybe
     
 data MonoEnv = MonoEnv{ 
-    ty :: Maybe PolyTy,
-    monovars :: Map VarName PolyTy }
+  source :: Maybe SDoc,
+  ty :: Maybe PolyTy,
+  monovars :: Map VarName PolyTy }
+
+setMonoSrc m src = m{ source = Just src }
+getMonoSrc = source
 
 getMonoTy = ty
 setMonoTy m σ = m{ty = Just σ}
 
 empty :: PolyTy -> MonoEnv
-empty σ = MonoEnv{ ty = Just σ,
+empty σ = MonoEnv{ source = Nothing,
+                   ty = Just σ,
                    monovars = mempty }
+
+noVars :: MonoEnv
+noVars = MonoEnv{ source = Nothing, ty = Nothing, monovars = mempty}
 
 justType :: PolyTy -> (MonoEnv, PolyTy)
 justType σ = (empty σ, σ)
@@ -36,7 +45,8 @@ getMonoVars :: MonoEnv -> [(VarName, PolyTy)]
 getMonoVars m = Map.toList (monovars m)
 
 combineMonos :: [MonoEnv] -> MonoEnv
-combineMonos ms = MonoEnv{ty = Nothing,
+combineMonos ms = MonoEnv{source = Nothing,
+                          ty = Nothing,
                           monovars = mconcat $ map monovars ms}
 
 removeMonoVars :: MonoEnv -> [VarName] -> MonoEnv

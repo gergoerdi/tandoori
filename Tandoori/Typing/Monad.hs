@@ -105,6 +105,9 @@ withSrc :: Outputable e => e -> Typing a -> Typing a
 withSrc src = Typing . (local setSrc) . unTyping
     where setSrc r = r{src = Just $ ppr src}
 
+askSrc :: Typing (Maybe SDoc)
+askSrc = Typing $ asks src
+
 withLSrc :: Outputable e => Located e -> Typing a -> Typing a
 withLSrc (L loc src) = withLoc loc . withSrc src
 

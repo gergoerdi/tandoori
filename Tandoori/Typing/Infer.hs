@@ -80,10 +80,11 @@ inferLExpr :: Located TanExpr -> Typing (MonoEnv, PolyTy)
 inferLExpr lexpr = withLSrc lexpr $ inferExpr $ unLoc lexpr
 
 inferExpr :: HsExpr Name -> Typing (MonoEnv, PolyTy)
-inferExpr (HsLit lit)                       = return $ justType $ PolyTy [] $ typeOfLit lit
-inferExpr (HsOverLit overlit)               = justType <$> typeOfOverLit overlit
+inferExpr (HsLit lit)                       = noVars ⊢ (PolyTy [] $ typeOfLit lit)
+inferExpr (HsOverLit overlit)               = do σ <- typeOfOverLit overlit
+                                                 noVars ⊢ σ
 inferExpr (HsVar name) | isDataConName name = do τ <- (instantiate (const True) =<< askCon name) `orRecover` mkTyVar
-                                                 return $ justType $ PolyTy [] τ
+                                                 noVars ⊢ PolyTy [] τ
 inferExpr (ExplicitList _ lexprs)           = do (ms, σs) <- unzip <$> mapM inferLExpr lexprs
                                                  (m, σ) <- unify ms σs
                                                  m ⊢ ptyList σ
@@ -110,7 +111,7 @@ inferExpr (HsLam (MatchGroup lmatches _))   = do (ms, σs) <- unzip <$> mapM inf
 inferExpr (HsVar x) = do decl <- askUserDecl x
                          case decl of
                            Just lσ  -> do σ' <- instantiatePolyTy (const True) (unLoc lσ)
-                                          return $ justType σ'
+                                          noVars ⊢ σ'
                            Nothing   -> do pv <- askPolyVar x
                                            case pv of
                                              Nothing -> do monovars <- askForcedMonoVars
@@ -249,12 +250,12 @@ inferPat (AsPat (L _ name) lpat)           = do tellVar name
                                                 let m' = addMonoVar m (name, σ)
                                                 m' ⊢ σ
 inferPat (ParPat lpat)                     = inferLPat lpat
-inferPat (WildPat _)                       = do alpha <- mkTyVar
-                                                return $ justType $ (PolyTy [] alpha)
+inferPat (WildPat _)                       = do α <- mkTyVar
+                                                noVars ⊢ PolyTy [] α
 inferPat (VarPat name)                     = do tellVar name
                                                 alpha <- mkTyVar
                                                 return $ name `typedAs` (PolyTy [] alpha)
-inferPat (LitPat lit)                      = return $ justType $ PolyTy [] $ typeOfLit lit
+inferPat (LitPat lit)                      = noVars ⊢ (PolyTy [] $ typeOfLit lit)
 inferPat (ConPatIn (L _ con) details)  = do τCon <- askCon con -- TODO: errors
                                             (ms, σs) <- unzip <$> mapM inferLPat lpats
                                             alpha <- mkTyVar
@@ -272,11 +273,17 @@ inferPat (TuplePat lpats _ _)              = do (ms, σs) <- unzip <$> mapM infe
 inferPat (ListPat lpats _)                 = do (ms, σs) <- unzip <$> mapM inferLPat lpats
                                                 (m, σ) <- unify ms σs
                                                 m ⊢ ptyList σ
-inferPat (NPat overlit _ _)                = justType <$> typeOfOverLit overlit
+inferPat (NPat overlit _ _)                = do σ <- typeOfOverLit overlit
+                                                noVars ⊢ σ
                                              
+infix 1 ⊢
 (⊢) :: MonoEnv -> PolyTy -> Typing (MonoEnv, PolyTy)                                             
 m ⊢ σ = do let m' = setMonoTy m σ
-           return (m', σ)
+           src <- askSrc
+           let m'' = case src of
+                 Nothing -> m'
+                 Just src -> setMonoSrc m' src
+           return (m'', σ)
                                              
 unify :: [MonoEnv] -> [PolyTy] -> Typing (MonoEnv, PolyTy)
 unify ms σs = do eqs <- monoeqs
