@@ -1,6 +1,4 @@
-{-# LANGUAGE ExistentialQuantification #-}
-module Tandoori.Typing.Error where
--- module Tandoori.Errors (ErrorLocation(..), ErrorSource(..), ErrorMessage(..), ErrorContent(..), TyEq(..)) where
+module Tandoori.Typing.Error (ErrorLocation(..), ErrorMessage(..), TypingError(..), ErrorContent(..)) where
 
 import Tandoori
 import Tandoori.GHC.Internals
@@ -9,8 +7,7 @@ import Tandoori.Typing.MonoEnv
 import Control.Monad.Error
 
 --- Errors    
-data ErrorSource = forall src. Outputable src => ErrorSource src                                  
-data ErrorLocation = ErrorLocation SrcSpan (Maybe ErrorSource)
+data ErrorLocation = ErrorLocation SrcSpan (Maybe SDoc)
 data ErrorMessage = ErrorMessage ErrorLocation ErrorContent
 
 data TypingError = Unsolvable TyEq

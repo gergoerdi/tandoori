@@ -41,7 +41,7 @@ type ClsMap = Map Cls ClsInfo
 type InstMap = Map (Cls, TyCon) PolyTy    
     
 data R = R { loc :: SrcSpan,
-             src :: Maybe ErrorSource,
+             src :: Maybe SDoc,
                     
              kindmap :: KindMap,
              conmap :: ConMap,
@@ -103,7 +103,7 @@ withLoc loc = Typing . (local setLoc) . unTyping
 
 withSrc :: Outputable e => e -> Typing a -> Typing a
 withSrc src = Typing . (local setSrc) . unTyping
-    where setSrc r = r{src = Just $ ErrorSource src}
+    where setSrc r = r{src = Just $ ppr src}
 
 withLSrc :: Outputable e => Located e -> Typing a -> Typing a
 withLSrc (L loc src) = withLoc loc . withSrc src

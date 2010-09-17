@@ -72,12 +72,9 @@ instance Show PolyTy where
 instance (Show TyEq) where
     show (τ :=: τ') = unwords [show τ, ":=:", show τ']
 
-instance Outputable ErrorSource where
-    ppr (ErrorSource src) = ppr src
-                  
 instance Outputable ErrorMessage where
     ppr (ErrorMessage (ErrorLocation srcloc Nothing) content)     = ppr srcloc <> colon <+> ppr content
-    ppr (ErrorMessage (ErrorLocation srcloc (Just src)) content)  = ppr srcloc <> colon $$ ppr src $$ ppr content
+    ppr (ErrorMessage (ErrorLocation srcloc (Just src)) content)  = ppr srcloc <> colon $$ src $$ ppr content
                                   
 showFailedEqs sep tyeqs = unwords $ map (\ (t1 :=: t2) -> unwords [show t1, sep, show t2]) tyeqs
 
