@@ -1,1 +1,1 @@
-bar f = (f, f f)                
+bar f = (f, f f)

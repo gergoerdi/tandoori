@@ -1,4 +1,4 @@
-module Tandoori.Typing.MonoEnv (MonoEnv, noVars, setMonoSrc, getMonoSrc, getMonoTy, setMonoTy, mapMonoM, getMonoVars, getMonoVar, justType, typedAs, addMonoVar, filterMonoVars, combineMonos) where
+module Tandoori.Typing.MonoEnv (MonoEnv, noVars, setMonoSrc, getMonoSrc, getMonoTy, setMonoTy, mapMonoM, getMonoVars, getMonoVar, addMonoVar, filterMonoVars, combineMonos) where
 
 import Tandoori
 import Tandoori.GHC.Internals (SDoc, ppr)

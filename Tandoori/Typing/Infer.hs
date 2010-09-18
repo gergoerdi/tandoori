@@ -118,7 +118,7 @@ inferExpr (HsVar x) = do decl <- askUserDecl x
                                                            unless (x `Set.member` monovars) $
                                                                    addError $ UndefinedVar x
                                                            alpha <- mkTyVar
-                                                           return $ x `typedAs` (PolyTy [] alpha)
+                                                           x `typedAs` (PolyTy [] alpha)
                                              Just (m, σ) -> do monovars <- askForcedMonoVars
                                                                let isPoly tv = not (tv `Set.member` monotyvars)
                                                                    monotyvars = Set.unions $ map tvsOfDef $ Set.toList $ monovars
@@ -254,7 +254,7 @@ inferPat (WildPat _)                       = do α <- mkTyVar
                                                 noVars ⊢ PolyTy [] α
 inferPat (VarPat name)                     = do tellVar name
                                                 alpha <- mkTyVar
-                                                return $ name `typedAs` (PolyTy [] alpha)
+                                                name `typedAs` (PolyTy [] alpha)
 inferPat (LitPat lit)                      = noVars ⊢ (PolyTy [] $ typeOfLit lit)
 inferPat (ConPatIn (L _ con) details)  = do τCon <- askCon con -- TODO: errors
                                             (ms, σs) <- unzip <$> mapM inferLPat lpats
@@ -285,6 +285,10 @@ m ⊢ σ = do let m' = setMonoTy m σ
                  Just src -> setMonoSrc m' src
            return (m'', σ)
                                              
+typedAs :: VarName -> PolyTy -> Typing (MonoEnv, PolyTy)
+v `typedAs` σ = (addMonoVar noVars (v, σ)) ⊢ σ
+
+
 unify :: [MonoEnv] -> [PolyTy] -> Typing (MonoEnv, PolyTy)
 unify ms σs = do eqs <- monoeqs
                  α <- mkTyVar
