@@ -14,7 +14,8 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Text.PrettyPrint.Boxes as Box
 import Data.List    
-    
+-- import qualified Data.MultiSet as Bag
+
 data ShowTyCtxt = C { isLeftOfFun :: Bool, isRightOfApp :: Bool }
 
 showFunLeft :: ShowTyCtxt -> Ty -> String
@@ -126,6 +127,9 @@ boxMonos :: [MonoEnv] -> Box.Box
 boxMonos ms = Box.hsep 2 Box.top $ boxNames:(map boxTypes ms)
     where vars :: [VarName]
           vars = Set.toList $ Set.unions $ map (Set.fromList . map fst . getMonoVars) ms
+          -- Omit non-shared variables?
+          -- vars = map fst $ filter (\(v, c) -> c >= 2) $ Bag.toOccurList $ Bag.unions varBags
+          --   where varBags = map (Bag.fromList . nub . map fst . getMonoVars) ms
           
           boxType m v = Box.text $ maybe "" show $ getMonoVar m v
                           
