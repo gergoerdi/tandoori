@@ -55,10 +55,10 @@ type VarSet = Set VarName
 type W = ([ErrorMessage], VarSet)
 
 --- State
-newtype Counter = Counter{ unCounter :: Int } deriving Enum
+newtype Supply a = Supply{ unSupply :: [a] }
 
 --- The Typing monad       
-newtype Typing a = Typing { unTyping :: ErrorT ErrorMessage (RWS R W Counter) a} deriving (Monad, Functor)
+newtype Typing a = Typing { unTyping :: ErrorT ErrorMessage (RWS R W (Supply Tv)) a} deriving (Monad, Functor)
 
 runTyping :: Typing a -> (Maybe a, [ErrorMessage])
 runTyping typing = let (result, s', (output, _)) = (runRWS . runErrorT . unTyping) typing' r s
@@ -72,7 +72,10 @@ runTyping typing = let (result, s', (output, _)) = (runRWS . runErrorT . unTypin
                   classmap = Map.empty,
                   instances = Map.empty,
                   ctxt = mkCtxt }
-          s = Counter 0
+          s = Supply $ map toTv [1..]
+            where toTv i = let name = 't':(show i)
+                               uname = mkAlphaTyVarUnique i
+                           in mkSysTvName uname (mkFastString name)                               
 
           typing' = do α <- mkTyVar
                        let cons = map (\(n, τ) -> (dataConName n, τ)) $
@@ -82,17 +85,10 @@ runTyping typing = let (result, s', (output, _)) = (runRWS . runErrorT . unTypin
                                    (falseDataCon, tyBool)]
                        withCons cons $ typing              
 
-fresh :: Typing Int
-fresh = Typing $ do u <- gets unCounter
-                    modify succ
-                    return u
-                      
 mkTv :: Typing Tv
-mkTv = do u <- fresh
-          let namestr = 't':(show u)
-              uname = mkAlphaTyVarUnique u
-              name = mkSysTvName uname (mkFastString namestr)
-          return name
+mkTv = Typing $ do α:αs <- gets unSupply
+                   put $ Supply αs
+                   return α
 
 mkTyVar :: Typing Ty
 mkTyVar = TyVar <$> mkTv
