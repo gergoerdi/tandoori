@@ -1,12 +1,11 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving, NamedFieldPuns #-}
--- module Tandoori.Ty.State (Typing, runTyping,
---                           sinkWriter,
+-- module Tandoori.Typing.Monad (ClsInfo(..), Typing, runTyping,
 --                           mkTv,
 --                           askCtxt, withCtxt,
---                           askCon, askBaseClassesOf, askBaseInstancesOf,
+--                           askCon, 
 --                           askUserDecl, askPolyVar, askForcedMonoVars,
 --                           withUserDecls, withMonoVars, withPolyVars,
---                           addError, withLoc, withSrc, withLSrc) where
+--                           raiseError, withLoc, withSrc, withLSrc) where
 module Tandoori.Typing.Monad where
 
 import Data.Maybe
@@ -17,7 +16,7 @@ import Tandoori.Typing
 import Tandoori.Typing.Error
 import Tandoori.Typing.Ctxt
 import Tandoori.Typing.MonoEnv
-import Control.Monad.RWS (RWS, runRWS, ask, asks, local, tell, listen, get, gets, put, modify)
+import Control.Monad.RWS (RWS, runRWS, ask, asks, local, tell, listen, censor, get, gets, put, modify)
 import Control.Monad.Writer (runWriterT)
 import Control.Monad.Error
 import Control.Applicative
@@ -125,14 +124,8 @@ tellVars :: VarSet -> Typing ()
 tellVars vars = Typing $ tell (mempty, vars)
 
 listenVars :: Typing a -> Typing (a, VarSet)
-listenVars f = Typing $ do r <- ask
-                           s <- get
-                           let (res, s', (errs, vars)) = (runRWS . runErrorT . unTyping) f r s
-                           put s'
-                           unTyping $ tellErrors errs
-                           case res of
-                               Left err -> throwError err
-                               Right x -> return (x, vars)
+listenVars f = Typing $ do (result, (_, vars)) <- censor (fmap (const mempty)) $ listen $ unTyping f
+                           return (result, vars)
                            
 censorVars :: Typing a -> Typing a
 censorVars = liftM fst . listenVars
