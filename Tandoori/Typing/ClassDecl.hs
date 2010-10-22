@@ -47,7 +47,7 @@ classGraph decls = do (g, fromVertex, toVertex) <- G.graphFromEdges <$> edges
                     [L _ (UserTyVar α)] = tcdTyVars decl
                     ctx = map superFromPred $ map unLoc $ unLoc $ tcdCtxt decl
                     superFromPred (HsClassP cls [L _ (HsTyVar α')]) = (cls, α')
-                    checkCtx = forM ctx $ \ (cls', α') ->
+                    checkCtx = forM_ ctx $ \ (cls', α') ->
                                  unless (α' == α) $
                                    raiseError $ InvalidClassCtx (cls, α) (cls', α')
                                               

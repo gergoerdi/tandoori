@@ -105,7 +105,8 @@ instance Outputable ErrorContent where
     ppr (MissingBaseInstances (cls, τ) πs) = text "Missing base instances of" <+> text (showPred (cls, τ)) <> colon <+> sep (punctuate comma $ map (text . showPred) $ fromPolyCtx πs)
     ppr InvalidInstance                  = text "Invalid instance declaration"
     ppr (OtherError message  )           = text message
-                                           
+    ppr (UndefinedCls cls)               = text "Undefined class" <+> text (showName cls)
+    
 prettyTypingErrorM (Unsolvable eq) = Unsolvable <$> prettyTyEqM eq
 prettyTypingErrorM (InfiniteType eq) = InfiniteType <$> prettyTyEqM eq
                                            

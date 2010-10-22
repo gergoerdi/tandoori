@@ -28,7 +28,7 @@ import qualified Data.Map as Map
 import Control.Monad.Writer (runWriterT)
 import Control.Monad (liftM)
     
-import IPPrint
+-- import IPPrint
 
 --
 import Tandoori.Typing.Unify

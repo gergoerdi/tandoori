@@ -89,7 +89,7 @@ mkGbl env mod = do dfuns_var         <- newIORef emptyNameSet
                               }
 
 runScope :: HscEnv -> Located (HsModule RdrName) -> IO ([LImportDecl Name], [LTyClDecl Name], HsGroup Name)
-runScope env lmod = do let modinfo = mkModule mainPackageId $ mkModuleName "foo"
+runScope env lmod = do let modinfo = mkModule mainPackageId $ mkModuleName "Main"
                            group = fst $ findSplice decls
                        gbl <- mkGbl env modinfo
                        lcl <- mkLcl

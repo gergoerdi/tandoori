@@ -31,32 +31,3 @@ substTyM τ@(TyTuple _) = return τ
                          
 substTy :: Subst -> Ty -> Ty
 substTy s τ = fst $ evalRWS (substTyM τ) s ()
-                         
--- substTy :: Subst -> HsType Name -> HsType Name
--- substTy s ty = let (SubstRes tvs ty') = substTyM s ty
---                in ty'
-                            
--- substLTyM :: Subst -> (Located (HsType Name)) -> SubstRes (Located (HsType Name))
--- substLTyM s lty = do ty' <- substTyM s (unLoc lty)
---                      return $ noLoc ty'
-
--- substLTy :: Subst -> LHsType Name -> LHsType Name
--- substLTy s lty = let (SubstRes tvs ty') = substLTyM s lty
---                  in ty'
-                    
--- substCTy :: Subst -> (CanonizedType, HsContext Name) -> CanonizedType
--- substCTy s (cty, ctxt) = mkCanonizedType ty' ctxtInEffect
---     where SubstRes tvs ty' = substTyM s ty
---           -- ctxtInEffect = trace (show (ctxt, s)) $ (map (substLPred s) $ ctyLPreds cty) ++ (filter hasRelevantTyVars ctxt')
---           ctxtInEffect = (map (substLPred s) $ ctyLPreds cty) ++ (filter hasRelevantTyVars ctxt')
---           ctxt' = map (substLPred s) ctxt
---           ty = ctyTy cty
---           -- ctxt'' = map (substLPred s) ctxtInEffect
---           -- hasRelevantTyVars lpred = True
---           hasRelevantTyVars lpred = any (\ tv -> tv `Set.member` tvs) $ Set.toList $ tyVarsOfPred (unLoc lpred)
-                                        
--- substLPred :: Subst -> LHsPred Name -> LHsPred Name
--- substLPred s = noLoc . substPred s . unLoc
-                                 
--- substPred :: Subst -> HsPred Name -> HsPred Name
--- substPred s (HsClassP cls [lty]) = HsClassP cls [substLTy s lty]

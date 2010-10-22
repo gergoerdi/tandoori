@@ -8,7 +8,7 @@ runDyn m = defaultErrorHandler defaultDynFlags $ do
              runGhc (Just libdir) $ do
                --newSession
                dflags <- getSessionDynFlags
-               setSessionDynFlags dflags
+               _ <- setSessionDynFlags dflags
                -- env <- liftIO $ newHscEnv dflags
                -- setSession env
                m

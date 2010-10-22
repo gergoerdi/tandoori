@@ -14,23 +14,23 @@ mgu eqs = mgu' False eqs
 fitDeclTy :: Ty -> Ty -> ErrorT TypingError Typing Subst
 fitDeclTy τDecl τ = mgu' True [τ :=: τDecl]
     
-data Unification  = Substitute Tv Ty
-                  | Skip
-                  | Incongruent
-                  | Flip Unification
+data Unification  = Skip
+                  | Substitute Tv Ty
                   | Recurse [TyEq]
+                  | Flip Unification
+                  | Incongruent
                   | OccursFailed
                     
 mguEq :: TyEq -> ErrorT TypingError Typing Unification
 mguEq (TyCon d   :=: TyCon d')                     = return $ if d == d' then Skip else Incongruent
 mguEq (TyVar α   :=: TyVar α')       | α == α'     = return Skip
-mguEq (TyVar α   :=: t')             | occurs α t' = return OccursFailed
+mguEq (TyVar α   :=: τ')             | occurs α τ' = return OccursFailed
                                      -- | otherwise   = do rigid <- isMonoTv α
                                      --                    return $ if rigid then Flip Rigid else Substitute α t'
-                                     | otherwise   = return $ Substitute α t'
-mguEq (t         :=: TyVar α)                      = return $ Flip Incongruent
-mguEq (TyFun t u :=: TyFun t' u')                  = return $ Recurse [t :=: t', u :=: u']
-mguEq (TyApp t u :=: TyApp t' u')                  = return $ Recurse [t :=: t', u :=: u']
+                                     | otherwise   = return $ Substitute α τ'
+mguEq (τ         :=: TyVar α)                      = return $ Flip Incongruent
+mguEq (TyFun τ μ :=: TyFun τ' mu')                  = return $ Recurse [τ :=: τ', μ :=: μ']
+mguEq (TyApp τ μ :=: TyApp τ' μ')                  = return $ Recurse [τ :=: τ', μ :=: μ']
 mguEq (TyTuple n :=: TyTuple m)      | n == m      = return Skip
 mguEq _                                            = return $ Incongruent
 

@@ -3,7 +3,6 @@ module Tandoori.Typing.Instantiate (instantiate, instantiatePolyTy) where
 import Tandoori
 import Tandoori.Typing
 import Tandoori.Typing.Monad
-import Tandoori.Util
 import Tandoori.GHC.Internals
     
 import qualified Data.Map as Map

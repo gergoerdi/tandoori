@@ -7,13 +7,6 @@ import Tandoori.GHC.Internals
 import Tandoori.Typing.Repr
 import Tandoori.Typing.Error
     
-import Control.Monad.Error
-import Control.Applicative
-
-import qualified Data.Map as Map    
-import qualified Data.Graph as G
-import qualified Data.Tree as T
-    
 instDecl :: InstDecl Name -> Typing ((Cls, TyCon), PolyTy)
 instDecl (InstDecl lty binds lsigs _) = withLSrc lty $ do
   (cls, σ) <- case unLoc lty of

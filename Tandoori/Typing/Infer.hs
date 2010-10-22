@@ -3,7 +3,6 @@ module Tandoori.Typing.Infer(infer) where
 -- module Tandoori.Typing.Infer where
 
 import Tandoori
-import Tandoori.Util
 import Tandoori.Typing
 import Tandoori.Typing.Monad
 import Tandoori.Typing.Error
@@ -74,7 +73,7 @@ typeOfOverLit (OverLit { ol_val = val }) = do α <- mkTv
                                               let cls = case val of
                                                           HsIntegral _ -> numClassName
                                               return $ PolyTy [(cls, α)] (TyVar α)
-                                              return $ PolyTy [] tyInt -- Comment this out to have non-polymorph integer literals
+                                              -- return $ PolyTy [] tyInt -- Comment this out to have non-polymorph integer literals
                                                              
 inferLExpr :: Located TanExpr -> Typing (MonoEnv, PolyTy)
 inferLExpr lexpr = withLSrc lexpr $ inferExpr $ unLoc lexpr

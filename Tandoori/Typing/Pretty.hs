@@ -2,7 +2,6 @@ module Tandoori.Typing.Pretty(prettyTy, prettyTyM, prettyPolyTyM, runPretty) whe
 
 import Tandoori.GHC.Internals
 import Tandoori
-import Tandoori.Util
 import Tandoori.Typing
     
 import Data.Char

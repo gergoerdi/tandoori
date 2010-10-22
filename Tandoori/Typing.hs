@@ -1,7 +1,6 @@
 module Tandoori.Typing where
 
 import Tandoori
-import Tandoori.Util
 import qualified Tandoori.GHC.Internals as GHC
 import Tandoori.GHC.Internals (Located(..), unLoc)
     
@@ -36,7 +35,10 @@ type PolyPred = (Cls, Tv)
 type PolyCtx = [PolyPred]
 data PolyTy = PolyTy PolyCtx Ty
 
+fromPolyCtx :: PolyCtx -> OverCtx
 fromPolyCtx ctx = map (fmap TyVar) ctx
+
+fromPolyTy :: PolyTy -> OverTy
 fromPolyTy (PolyTy ctx ty) = OverTy (fromPolyCtx ctx) ty
               
 --- Utility
