@@ -8,27 +8,20 @@
 --                           raiseError, withLoc, withSrc, withLSrc) where
 module Tandoori.Typing.Monad where
 
-import Data.Maybe
-
 import Tandoori
 import Tandoori.GHC.Internals
 import Tandoori.Typing
 import Tandoori.Typing.Error
 import Tandoori.Typing.Ctxt
 import Tandoori.Typing.MonoEnv
-import Control.Monad.RWS (RWS, runRWS, ask, asks, local, tell, listen, censor, get, gets, put, modify)
-import Control.Monad.Writer (runWriterT)
+import Control.Monad.RWS (RWS, runRWS, asks, local, tell, listen, censor, gets, put)
 import Control.Monad.Error
 import Control.Applicative
 import Data.Monoid
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Map (Map)
-import qualified Data.Map as Map
-    
-
-import Tandoori.Typing.Show
-import Debug.Trace
+import qualified Data.Map as Map    
 
 --- Reader
 type KindMap = Map TvName Int -- TODO: DataName

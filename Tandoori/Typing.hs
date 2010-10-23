@@ -1,11 +1,8 @@
 module Tandoori.Typing where
 
-import Tandoori
 import qualified Tandoori.GHC.Internals as GHC
-import Tandoori.GHC.Internals (Located(..), unLoc)
     
 import qualified Data.Set as Set
-import Control.Applicative
 import Data.List (nub)
 import Data.Monoid
     

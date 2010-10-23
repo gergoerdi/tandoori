@@ -1,6 +1,5 @@
 module Tandoori.Typing.InstanceDecl where
 
-import Tandoori
 import Tandoori.Typing
 import Tandoori.Typing.Monad
 import Tandoori.GHC.Internals

@@ -1,7 +1,6 @@
 module Tandoori.Typing.Substitute where
 -- module Tandoori.Ty.Substitute (Substitution, substCTy, addSubst, emptySubst, substTy) where
 
-import Tandoori
 import Tandoori.Typing
 import Control.Monad
 import Control.Monad.RWS

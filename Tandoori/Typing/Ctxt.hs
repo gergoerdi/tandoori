@@ -9,13 +9,14 @@ import Tandoori.Typing
 import Tandoori.Typing.MonoEnv
 import Tandoori.GHC.Internals (Located)
     
+import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Set (Set)
 import qualified Data.Set as Set
-import Data.Maybe
 
-data Ctxt = Ctxt { monoVars :: Set.Set VarName,
-                   polyVars :: Map.Map VarName (MonoEnv, PolyTy),
-                   userDecls :: Map.Map VarName (Located PolyTy) }
+data Ctxt = Ctxt { monoVars :: Set VarName,
+                   polyVars :: Map VarName (MonoEnv, PolyTy),
+                   userDecls :: Map VarName (Located PolyTy) }
     
 mkCtxt :: Ctxt
 mkCtxt = Ctxt { monoVars = Set.empty,

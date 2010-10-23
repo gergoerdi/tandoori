@@ -1,6 +1,5 @@
 module Tandoori.Typing.ClassDecl (classMap) where
 
-import Tandoori
 import Tandoori.Typing
 import Tandoori.Typing.Monad
 import Tandoori.Typing.Error

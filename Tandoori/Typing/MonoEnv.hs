@@ -1,14 +1,12 @@
 module Tandoori.Typing.MonoEnv (MonoEnv, noVars, setMonoSrc, getMonoSrc, getMonoTy, setMonoTy, mapMonoM, getMonoVars, getMonoVar, addMonoVar, filterMonoVars, combineMonos) where
 
 import Tandoori
-import Tandoori.GHC.Internals (SDoc, ppr)
+import Tandoori.GHC.Internals (SDoc)
 import Tandoori.Typing
 
 import Data.Monoid    
-import Control.Monad.State
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Maybe
     
 data MonoEnv = MonoEnv{ 
   source :: Maybe SDoc,

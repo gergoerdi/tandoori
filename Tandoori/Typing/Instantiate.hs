@@ -1,12 +1,9 @@
 module Tandoori.Typing.Instantiate (instantiate, instantiatePolyTy) where
 
-import Tandoori
 import Tandoori.Typing
 import Tandoori.Typing.Monad
-import Tandoori.GHC.Internals
     
 import qualified Data.Map as Map
-import qualified Data.Set as Set
 import Control.Applicative
 import Control.Monad.RWS
 

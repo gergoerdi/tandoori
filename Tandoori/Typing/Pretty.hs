@@ -1,12 +1,10 @@
 module Tandoori.Typing.Pretty(prettyTy, prettyTyM, prettyPolyTyM, runPretty) where
 
 import Tandoori.GHC.Internals
-import Tandoori
 import Tandoori.Typing
     
 import Data.Char
 import Control.Monad.State
-import Control.Applicative
 import qualified Data.Map as Map
 
 type TvMap = Map.Map Tv Tv

@@ -17,7 +17,6 @@ import Tandoori.Typing.InstanceDecl
 import Tandoori.Typing.Repr
     
 import Control.Monad.Writer
-import Control.Monad.Reader
 import Control.Monad.Error
 import Control.Monad.Maybe
 import Control.Applicative
@@ -26,9 +25,6 @@ import qualified Data.Set as Set
 import qualified Data.Map as Map
 import Data.List
 
-import Tandoori.Typing.Show
-import Debug.Trace    
-    
 import Tandoori.GHC.Internals
 
 import Bag (bagToList)
@@ -58,7 +54,7 @@ infer decls group = runTyping $ do
                   superOK <- ctx `satisfies` ctx'
                   unless superOK $ do
                     raiseError $ MissingBaseInstances (cls, τ) ctx'
-                checkMember lbind = return ()
+                checkMember lbind = return () -- TODO
             mapM_ checkSuper (clsSupers ci)
             (ctxt', vars) <- listenVars $ inferBindGroup binds lsigs
             return ()
@@ -98,7 +94,7 @@ inferExpr (HsApp ltyFun ltyParam)           = do (m1, σ1) <- inferLExpr ltyFun
                                                  (m, σ) <- unify [m1, m2] [σ1, ptyCurryFun [σ2, PolyTy [] α]]
                                                  case σ of
                                                    (PolyTy ctx (TyFun τ3 τ4)) -> m ⊢ PolyTy ctx τ4
-                                                   _                          -> do -- TODO: Error
+                                                   _                          -> do -- TODO: Error reporting
                                                                                     β <- mkTyVar
                                                                                     m ⊢ PolyTy [] β
                                                                  
@@ -189,7 +185,8 @@ inferBindGroup lbindbag lsigs = do (m, vars) <- listenVars $ inferBinds lbindbag
                             ctxOk <- ctxDecl `satisfies` ctx'
                             unless ctxOk $ do
                               raiseError $ CantFitDecl σDecl σ'
-
+          
+          -- TODO: Why not use askUserDecl?
           lookupDecl :: VarName -> MaybeT Typing (Located PolyTy)
           lookupDecl v = do (L loc (TypeSig _ lty)) <- MaybeT $ return $ find byName lsigs
                             σDecl <- lift $ fromHsType $ unLoc lty
@@ -218,6 +215,8 @@ inferBind PatBind{pat_lhs = lpat, pat_rhs = grhss} = do ((m, σ), vars) <- liste
                                                         return m''
 inferBind VarBind{} = error "VarBind"
 inferBind FunBind{fun_matches = MatchGroup lmatches _, fun_id = (L _ name)} = do tellVar name
+                                                                                 -- TODO: why not introduce new monovars per group?
+                                                                                 -- because each member of a group sends up its own idea of the others (in Δ), and they are unified later in the group level
                                                                                  (ms, σs) <- withMonoVars (Set.singleton name) $ censorVars $ 
                                                                                             unzip <$> mapM inferLMatch lmatches
                                                                                  (m, σ) <- unify ms σs
@@ -236,6 +235,7 @@ inferMatch (Match lpats _ grhss) = do ((ms, σs), vars) <- listenVars $ (unzip <
 
 inferGRhs (GRHS _ lexpr) = inferLExpr lexpr
 inferGRhss (GRHSs lgrhss _) = do (ms, σs) <- unzip <$> mapM (inferGRhs . unLoc) lgrhss
+                                 -- TODO: typecheck guards
                                  (m, σ) <- unify ms σs
                                  m ⊢ σ
 
@@ -314,7 +314,7 @@ unify ms σs = do eqs <- monoeqs
           substMono s m = mapMonoM (subst s) m
                                   
 
----- Predicates
+---- Predicates -- TODO: move to new module
 substPred :: Subst -> PolyPred -> Typing [PolyPred]
 substPred s (cls, α) = resolvePred (cls, substTy s (TyVar α))
 

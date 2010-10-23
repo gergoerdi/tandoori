@@ -1,12 +1,10 @@
 module Tandoori.Typing.Unify (mgu, fitDeclTy) where
 
-import Tandoori
 import Tandoori.Typing
 import Tandoori.Typing.Monad
 import Tandoori.Typing.Error
 import Control.Monad.Error
 import Tandoori.Typing.Substitute
-import Tandoori.Typing.Show
     
 mgu :: [TyEq] -> ErrorT TypingError Typing Subst
 mgu eqs = mgu' False eqs
@@ -29,7 +27,7 @@ mguEq (TyVar α   :=: τ')             | occurs α τ' = return OccursFailed
                                      --                    return $ if rigid then Flip Rigid else Substitute α t'
                                      | otherwise   = return $ Substitute α τ'
 mguEq (τ         :=: TyVar α)                      = return $ Flip Incongruent
-mguEq (TyFun τ μ :=: TyFun τ' mu')                  = return $ Recurse [τ :=: τ', μ :=: μ']
+mguEq (TyFun τ μ :=: TyFun τ' μ')                  = return $ Recurse [τ :=: τ', μ :=: μ']
 mguEq (TyApp τ μ :=: TyApp τ' μ')                  = return $ Recurse [τ :=: τ', μ :=: μ']
 mguEq (TyTuple n :=: TyTuple m)      | n == m      = return Skip
 mguEq _                                            = return $ Incongruent

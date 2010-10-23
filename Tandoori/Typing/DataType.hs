@@ -8,7 +8,6 @@ import Tandoori.GHC.Internals
 import Tandoori.Typing.Repr
     
 import Control.Monad
-import Control.Monad.Error
     
 constructorsFromDecl :: TyClDecl Name -> Typing [(ConName, Ty)]
 constructorsFromDecl decl | isDataDecl decl  = do
