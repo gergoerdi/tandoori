@@ -2,8 +2,9 @@
 -- module Tandoori.Typing.Monad (ClsInfo(..), Typing, runTyping,
 --                           mkTv,
 --                           askCtxt, withCtxt,
---                           askCon, 
+--                           askCon, askClass, askSupers, askInstance,
 --                           askUserDecl, askPolyVar, askForcedMonoVars,
+--                           withCons, withClasses, withInstances,
 --                           withUserDecls, withMonoVars, withPolyVars,
 --                           raiseError, withLoc, withSrc, withLSrc) where
 module Tandoori.Typing.Monad where
@@ -14,6 +15,7 @@ import Tandoori.Typing
 import Tandoori.Typing.Error
 import Tandoori.Typing.Ctxt
 import Tandoori.Typing.MonoEnv
+import Tandoori.Supply
 import Control.Monad.RWS (RWS, runRWS, asks, local, tell, listen, censor, gets, put)
 import Control.Monad.Error
 import Control.Applicative
@@ -46,9 +48,6 @@ data R = R { loc :: SrcSpan,
 type VarSet = Set VarName
 type W = ([ErrorMessage], VarSet)
 
---- State
-newtype Supply a = Supply{ unSupply :: [a] }
-
 --- The Typing monad       
 newtype Typing a = Typing { unTyping :: ErrorT ErrorMessage (RWS R W (Supply Tv)) a} deriving (Monad, Functor)
 
@@ -78,9 +77,7 @@ runTyping typing = let (result, s', (output, _)) = (runRWS . runErrorT . unTypin
                        withCons cons $ typing              
 
 mkTv :: Typing Tv
-mkTv = Typing $ do α:αs <- gets unSupply
-                   put $ Supply αs
-                   return α
+mkTv = Typing getSupply
 
 mkTyVar :: Typing Ty
 mkTyVar = TyVar <$> mkTv
