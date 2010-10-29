@@ -1,16 +1,17 @@
 module Tandoori.Typing.Unify (mgu, fitDeclTy) where
 
+import Tandoori
 import Tandoori.Typing
 import Tandoori.Typing.Monad
 import Tandoori.Typing.Error
 import Control.Monad.Error
 import Tandoori.Typing.Substitute
     
-mgu :: [TyEq] -> ErrorT TypingError Typing Subst
+mgu :: [(Maybe VarName, TyEq)] -> ErrorT TypingError Typing Subst
 mgu eqs = mgu' False eqs
 
 fitDeclTy :: Ty -> Ty -> ErrorT TypingError Typing Subst
-fitDeclTy τDecl τ = mgu' True [τ :=: τDecl]
+fitDeclTy τDecl τ = mgu' True [(Nothing, τ :=: τDecl)]
     
 data Unification  = Skip
                   | Substitute Tv Ty
@@ -33,16 +34,16 @@ mguEq (TyTuple n :=: TyTuple m)      | n == m      = return Skip
 mguEq _                                            = return $ Incongruent
 
          
-mgu' :: Bool -> [TyEq] -> ErrorT TypingError Typing Subst
-mgu' leftOnly []               = return emptySubst
-mgu' leftOnly ((t :=: t'):eqs) = process False =<< mguEq (t :=: t')
+mgu' :: Bool -> [(Maybe VarName, TyEq)] -> ErrorT TypingError Typing Subst
+mgu' leftOnly []                    = return emptySubst
+mgu' leftOnly ((src, t :=: t'):eqs) = process False =<< mguEq (t :=: t')
     where process flipped Skip              = mgu' leftOnly eqs
-          process flipped (Recurse eqs')    = mgu' leftOnly (eqs' ++ eqs)
-          process flipped Incongruent       = throwError $ Unsolvable (t :=: t')
-          process flipped OccursFailed      = throwError $ InfiniteType (t :=: t')
+          process flipped (Recurse eqs')    = mgu' leftOnly (map (\ eq -> (src, eq)) eqs' ++ eqs)
+          process flipped Incongruent       = throwError $ TypingError src $ Unsolvable (t :=: t')
+          process flipped OccursFailed      = throwError $ TypingError src $ InfiniteType (t :=: t')
           process flipped (Flip u)          = process True =<< if flipped || leftOnly then return u else mguEq (t' :=: t)
           process flipped (Substitute x t)  = do s <- mgu' leftOnly eqs'
                                                  return $ addSubst x t s
-              where eqs' = map (\ (t :=: t') -> ((subst t) :=: (subst t'))) eqs
+              where eqs' = map (fmap (\ (t :=: t') -> ((subst t) :=: (subst t')))) eqs
                         where s = addSubst x t emptySubst
                               subst t = substTy s t

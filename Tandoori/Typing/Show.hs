@@ -9,7 +9,7 @@ import Tandoori.Typing.Error
 import Tandoori.Typing.Ctxt
 import Tandoori.Typing.MonoEnv
 
-import Control.Applicative    
+import Control.Applicative ((<$>))
 import qualified Data.Map as Map    
 import qualified Data.Set as Set
 import qualified Text.PrettyPrint.Boxes as Box
@@ -79,17 +79,20 @@ instance Outputable ErrorMessage where
                                   
 showFailedEqs sep tyeqs = unwords $ map (\ (t1 :=: t2) -> unwords [show t1, sep, show t2]) tyeqs
 
-instance Outputable TypingError where
-    ppr (Unsolvable (τ1 :=: τ2)) = text "Cannot unify" <+> text (show τ1) <+> text "with" <+> text (show τ2)
+instance Outputable TypingErrorContent where
+    ppr (Unsolvable (τ1 :=: τ2)) = text "Cannot unify" <+> quotes (text (show τ1)) <+> text "with" <+> quotes (text (show τ2))
     ppr (InfiniteType (τ1 :=: τ2)) = text "Occurs check failed: infinite type" <+> text (show τ1) <+> text "=" <+> text (show τ2)
                           
 instance Outputable ErrorContent where
     ppr (UndefinedCon name)              = text "Reference to undefined constructor" <+> quotes (ppr name)
     ppr (UndefinedVar name)              = text "Reference to undefined variable" <+> quotes (ppr name)
-    ppr (UnificationFailed ms tyerr)     = ppr tyerr' $$ text (Box.render $ boxMonos ms')
+    ppr (UnificationFailed ms tyerr)     = ppr tyerr' <+> source <> colon $$ text (Box.render $ boxMonos ms')
         where (ms', tyerr') = runPretty $ do ms' <- mapM prettyMonoM ms
-                                             tyerr' <- prettyTypingErrorM tyerr
+                                             tyerr' <- prettyTypingErrorM (typingErrorContent tyerr)
                                              return (ms', tyerr')
+              source = case typingErrorSrc tyerr of
+                Just x -> text "when unifying " <> (quotes . text . showName) x
+                Nothing -> empty
     ppr (CantFitDecl tyDecl ty)          = text "Declared type" <+> text (show tyDecl') <+> text "is not a special case of inferred type" <+> text (show ty')
         where (tyDecl', ty') = runPretty $ do σDecl' <- prettyPolyTyM tyDecl
                                               σ' <- prettyPolyTyM ty

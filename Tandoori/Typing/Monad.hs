@@ -16,7 +16,7 @@ import Tandoori.Typing.Error
 import Tandoori.Typing.Ctxt
 import Tandoori.Typing.MonoEnv
 import Tandoori.Supply
-import Control.Monad.RWS (RWS, runRWS, asks, local, tell, listen, censor, gets, put)
+import Control.Monad.RWS (RWS, runRWS, asks, local, tell, listen, censor)
 import Control.Monad.Error
 import Control.Applicative
 import Data.Monoid

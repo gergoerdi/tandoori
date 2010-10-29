@@ -1,4 +1,4 @@
-module Tandoori.Typing.Error (ErrorLocation(..), ErrorMessage(..), TypingError(..), ErrorContent(..)) where
+module Tandoori.Typing.Error (ErrorLocation(..), ErrorMessage(..), TypingError(..), TypingErrorContent(..), ErrorContent(..)) where
 
 import Tandoori
 import Tandoori.GHC.Internals
@@ -10,8 +10,10 @@ import Control.Monad.Error
 data ErrorLocation = ErrorLocation SrcSpan (Maybe SDoc)
 data ErrorMessage = ErrorMessage ErrorLocation ErrorContent
 
-data TypingError = Unsolvable TyEq
-                 | InfiniteType TyEq
+data TypingErrorContent = Unsolvable TyEq
+                        | InfiniteType TyEq
+data TypingError = TypingError { typingErrorSrc :: Maybe VarName,
+                                 typingErrorContent :: TypingErrorContent }
 
 instance Error TypingError where
     strMsg = undefined

@@ -111,8 +111,8 @@ inferExpr (HsVar x) = do decl <- askUserDecl x
                                              Nothing -> do monovars <- askForcedMonoVars
                                                            unless (x `Set.member` monovars) $
                                                                    addError $ UndefinedVar x
-                                                           alpha <- mkTyVar
-                                                           x `typedAs` (PolyTy [] alpha)
+                                                           α <- mkTyVar
+                                                           x `typedAs` (PolyTy [] α)
                                              Just (m, σ) -> do monovars <- askForcedMonoVars
                                                                let isPoly tv = not (tv `Set.member` monotyvars)
                                                                    monotyvars = Set.unions $ map tvsOfDef $ Set.toList $ monovars
@@ -251,13 +251,13 @@ inferPat (ParPat lpat)                     = inferLPat lpat
 inferPat (WildPat _)                       = do α <- mkTyVar
                                                 noVars ⊢ PolyTy [] α
 inferPat (VarPat name)                     = do tellVar name
-                                                alpha <- mkTyVar
-                                                name `typedAs` (PolyTy [] alpha)
+                                                α <- mkTyVar
+                                                name `typedAs` (PolyTy [] α)
 inferPat (LitPat lit)                      = noVars ⊢ (PolyTy [] $ typeOfLit lit)
 inferPat (ConPatIn (L _ con) details)  = do τCon <- askCon con -- TODO: errors
                                             (ms, σs) <- unzip <$> mapM inferLPat lpats
-                                            alpha <- mkTyVar
-                                            (m, σ) <- unify ms [PolyTy [] τCon, ptyCurryFun (σs ++ [PolyTy [] alpha])]
+                                            α <- mkTyVar
+                                            (m, σ) <- unify ms [PolyTy [] τCon, ptyCurryFun (σs ++ [PolyTy [] α])]
                                             m ⊢ ptyFunResult σ
     where lpats = case details of
                     PrefixCon lpats -> lpats
@@ -290,7 +290,7 @@ v `typedAs` σ = (addMonoVar noVars (v, σ)) ⊢ σ
 unify :: [MonoEnv] -> [PolyTy] -> Typing (MonoEnv, PolyTy)
 unify ms σs = do eqs <- monoeqs
                  α <- mkTyVar
-                 let eqs' = map (\ (PolyTy _ τ) -> (α :=: τ)) σs
+                 let eqs' = map (\ (PolyTy _ τ) -> (Nothing, α :=: τ)) σs
                      σ = PolyTy (concatMap getCtx σs) α
                  u <- runErrorT $ mgu $ eqs ++ eqs'
                  case u of
@@ -303,7 +303,7 @@ unify ms σs = do eqs <- monoeqs
     where getCtx (PolyTy ctx _) = ctx
 
           monoeqs = do tyvarmap <- Map.fromList <$> mapM mkVar varnames
-                       let mkEq (var, (PolyTy _ τ)) = (fromJust $ Map.lookup var tyvarmap) :=: τ
+                       let mkEq (var, (PolyTy _ τ)) = (Just var, (fromJust $ Map.lookup var tyvarmap) :=: τ)
                        return $ map mkEq vars
               where varnames = nub $ map fst vars
                     mkVar var = do tv <- mkTyVar
