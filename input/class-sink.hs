@@ -1,4 +1,4 @@
--- undefined = undefined
+undefined = undefined
 
 class Eq a where
     (==) :: a -> a -> Bool

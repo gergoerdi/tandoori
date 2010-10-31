@@ -12,5 +12,4 @@ const = undefined
 toUpper :: Char -> Char
 toUpper = undefined
 
--- foo = \x y -> (const (toUpper x) y, const (not x) y)
-foo = \x y -> (toUpper x, not x)
+foo x = (toUpper x, not x)

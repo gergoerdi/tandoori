@@ -42,6 +42,6 @@ instance Ord a => Ord [a] where
 elem x [] = False
 elem x (y:ys) = (x == y) || (elem x ys)
 
-test = elem "foo"                  
+-- test = elem "foo"                  
 
 foo x y = (x < y) || (x == y)       
