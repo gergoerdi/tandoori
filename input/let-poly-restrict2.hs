@@ -14,5 +14,5 @@ not = undefined
 toUpper :: Char -> Char
 toUpper = undefined
 
-f xs = let xform f = map f xs
-       in (xform not, xform toUpper)
+test xs = let xform f = map f xs
+          in (xform not, xform toUpper)

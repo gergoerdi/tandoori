@@ -113,13 +113,13 @@ tellVar var = tellVars $ Set.singleton var
 tellVars :: VarSet -> Typing ()
 tellVars vars = Typing $ tell (mempty, vars)
 
+stopVars :: Typing a -> Typing a
+stopVars = Typing . censor (fmap (const mempty)) . unTyping
+
 listenVars :: Typing a -> Typing (a, VarSet)
-listenVars f = Typing $ do (result, (_, vars)) <- censor (fmap (const mempty)) $ listen $ unTyping f
+listenVars f = Typing $ do (result, (_, vars)) <- listen $ unTyping f
                            return (result, vars)
                            
-censorVars :: Typing a -> Typing a
-censorVars = liftM fst . listenVars
-                      
 raiseError :: ErrorContent -> Typing a
 raiseError err = do msg <- mkErrorMsg err
                     Typing $ throwError msg
@@ -155,9 +155,9 @@ withMonoVars :: Set VarName -> Typing a -> Typing a
 withMonoVars vars = Typing . local add . unTyping
     where add r@R{ctxt} = r{ ctxt = addMonoVars ctxt vars }
 
-withPolyVars :: [(VarName, (MonoEnv, PolyTy))] -> Typing a -> Typing a
-withPolyVars vars = Typing . local add . unTyping
-    where add r@R{ctxt} = r{ ctxt = addPolyVars ctxt vars }
+-- withPolyVars :: [(VarName, (MonoEnv, PolyTy))] -> Typing a -> Typing a
+-- withPolyVars vars = Typing . local add . unTyping
+--     where add r@R{ctxt} = r{ ctxt = addPolyVars ctxt vars }
                               
 withCtxt :: Ctxt -> Typing a -> Typing a
 withCtxt ctxt = Typing . local change . unTyping
