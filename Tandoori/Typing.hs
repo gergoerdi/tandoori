@@ -103,10 +103,11 @@ typeOfLit (GHC.HsString _) = tyString
 
 tvsOf :: Ty -> Set.Set Tv
 tvsOf (TyCon con)   = mempty
+tvsOf (TyTuple _)   = mempty
 tvsOf (TyVar α)     = Set.singleton α
 tvsOf (TyFun τ1 τ2) = tvsOf τ1 `mappend` tvsOf τ2
 tvsOf (TyApp τ1 τ2) = tvsOf τ1 `mappend` tvsOf τ2
-                        
+                      
 --- Occurs checking
 occurs x (TyVar α)     = α == x
 occurs x (TyFun τ1 τ2) = occurs x τ1 || occurs x τ2

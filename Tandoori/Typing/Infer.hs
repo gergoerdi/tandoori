@@ -68,7 +68,7 @@ typeOfOverLit (OverLit { ol_val = val }) = do α <- mkTv
                                               let cls = case val of
                                                           HsIntegral _ -> numClassName
                                               return $ PolyTy [(cls, α)] (TyVar α)
-                                              -- return $ PolyTy [] tyInt -- Comment this out to have non-polymorph integer literals
+                                              --return $ PolyTy [] tyInt -- Comment this out to have non-polymorph integer literals
                                                              
 inferLExpr :: Located TanExpr -> Typing (MonoEnv, PolyTy)
 inferLExpr lexpr = withLSrc lexpr $ inferExpr $ unLoc lexpr
@@ -78,6 +78,7 @@ inferExpr (HsLit lit)                       = noVars ⊢ (PolyTy [] $ typeOfLit 
 inferExpr (HsOverLit overlit)               = do σ <- typeOfOverLit overlit
                                                  noVars ⊢ σ
 inferExpr (HsVar name) | isDataConName name = do τ <- (instantiate (const True) =<< askCon name) `orRecover` mkTyVar
+                                                 --τ <- askCon name `orRecover` mkTyVar
                                                  noVars ⊢ PolyTy [] τ
 inferExpr (ExplicitList _ lexprs)           = do (ms, σs) <- unzip <$> mapM inferLExpr lexprs
                                                  (m, σ) <- unify ms σs
@@ -116,11 +117,11 @@ inferExpr (HsVar x) = do decl <- askUserDecl x
                                              Just (m, σ) -> do monovars <- askForcedMonoVars
                                                                let isPoly tv = not (tv `Set.member` monotyvars)
                                                                    monotyvars = Set.unions $ map tvsOfDef $ Set.toList $ monovars
-                                                               σ' <- instantiatePolyTy isPoly σ
-                                                               m ⊢ σ' -- TODO: Instantiate m as well?
-                                                 where tvsOfDef n = case getMonoVar m n of
-                                                                      Nothing -> Set.empty
-                                                                      Just (PolyTy _ τ) -> tvsOf τ
+                                                               (m', σ') <- instantiateTyping isPoly (m, σ)
+                                                               m' ⊢ σ'
+                                                 where tvsOfDef y = case getMonoVar m y of
+                                                                    Nothing -> Set.empty
+                                                                    Just (PolyTy _ τ) -> tvsOf τ
                              
 inferExpr (HsLet binds lexpr)               = do (ctxt, vars) <- inferLocalBinds binds
                                                  (m, σ) <- withCtxt ctxt $ inferLExpr lexpr
@@ -161,11 +162,11 @@ inferBindGroup lbindbag lsigs = do (m, vars) <- listenVars $ inferBinds lbindbag
                                    let varmap = map (\ v -> (v, fromJust' $ getMonoVar m v)) $ Set.toList vars
                                    -- TODO: Location
                                    polyvars <- catMaybes <$> mapM (toPoly m) varmap
-                                   addPolyVars' polyvars
-    where toPoly m (v, σ) = do lookup <- runMaybeT $ lookupDecl v
+                                   addReducedPolyVars polyvars
+    where toPoly m (x, σ) = do lookup <- runMaybeT $ lookupDecl x
                                case lookup of
                                  Nothing -> do checkCtxAmbiguity σ
-                                               return $ Just (v, (m, σ))
+                                               return $ Just (x, (m, σ))
                                  Just (L loc σDecl) -> doLoc loc $ do
                                                          checkDecl σDecl σ
                                                          checkCtxAmbiguity σDecl
@@ -192,11 +193,16 @@ inferBindGroup lbindbag lsigs = do (m, vars) <- listenVars $ inferBinds lbindbag
                             return $ L loc σDecl
               where byName (L _ (TypeSig (L _ name) _)) = name == v
 
-          addPolyVars' :: [(VarName, (MonoEnv, PolyTy))] -> Typing Ctxt
-          addPolyVars' polyvars = do ctxt <- askCtxt
-                                     let ctxt' = addPolyVars ctxt polyvars
-                                     return ctxt'                                                        
-                                                                    
+          addReducedPolyVars :: [(VarName, (MonoEnv, PolyTy))] -> Typing Ctxt
+          addReducedPolyVars polyvars = do ctxt <- askCtxt
+                                           let polyvars' = map reduce polyvars
+                                               ctxt' = addPolyVars ctxt polyvars'
+                                           return ctxt'                                                        
+              where reduce (x, (m, σ@(PolyTy _ τ))) = (x, (filterMonoVars hasOutsideVars m, σ))
+                      where hasOutsideVars y (PolyTy _ τ') | y == x = False
+                                                           | otherwise = not $ Set.null $ tvs `Set.intersection` tvsOf τ'
+                            tvs = tvsOf τ
+                  
 inferBinds :: LHsBinds Name -> Typing MonoEnv
 inferBinds lbindbag = do let lbinds = bagToList lbindbag
                          ms <- mapM inferLBind lbinds

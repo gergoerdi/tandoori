@@ -1,8 +1,9 @@
-module Tandoori.Typing.Instantiate (instantiate, instantiatePolyTy) where
+module Tandoori.Typing.Instantiate (instantiate, instantiatePolyTy, instantiateTyping) where
 
 import Tandoori.Typing
 import Tandoori.Typing.Monad
-    
+import Tandoori.Typing.MonoEnv    
+
 import qualified Data.Map as Map
 import Control.Applicative
 import Control.Monad.RWS
@@ -54,5 +55,15 @@ instantiateOverTy isPoly (OverTy ctx τ) = runInst isPoly inst
     where inst = liftM2 OverTy (mapM instantiatePredM ctx) (instantiateM τ)
                  
 instantiatePolyTy :: (Tv -> Bool) -> PolyTy -> Typing PolyTy
-instantiatePolyTy isPoly (PolyTy ctx τ) = runInst isPoly inst
-    where inst = liftM2 PolyTy (mapM instantiatePolyPredM ctx) (instantiateM τ)
+instantiatePolyTy isPoly = runInst isPoly . instantiatePolyTyM
+
+instantiatePolyTyM :: PolyTy -> Instantiate PolyTy
+instantiatePolyTyM (PolyTy ctx τ) = liftM2 PolyTy (mapM instantiatePolyPredM ctx) (instantiateM τ)
+
+instantiateTypingM :: (MonoEnv, PolyTy) -> Instantiate (MonoEnv, PolyTy)
+instantiateTypingM (m, σ) = do σ' <- instantiatePolyTyM σ
+                               m' <- mapMonoM instantiatePolyTyM m
+                               return (m', σ')
+
+instantiateTyping :: (Tv -> Bool) -> (MonoEnv, PolyTy) -> Typing (MonoEnv, PolyTy)
+instantiateTyping isPoly = runInst isPoly . instantiateTypingM

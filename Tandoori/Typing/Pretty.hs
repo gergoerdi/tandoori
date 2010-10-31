@@ -35,7 +35,7 @@ prettyPolyPredM (cls, α) = do α' <- prettyNameM α
                               return $ (cls, α')
                                     
 runPretty p = evalState (evalStateT p Map.empty) (Supply αs)
-  where αs = map (mkFastString . nameStr) [1..]
+  where αs = map (mkFastString . nameStr) [0..]
         nameStr c | c < 26 = [chr $ (ord 'a') + c]
                   | otherwise = 't':show (c - 26)
 prettyTy = runPretty . prettyTyM

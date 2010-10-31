@@ -121,11 +121,17 @@ prettyMonoM = mapMonoM prettyPolyTyM
 
 printCtxt :: Ctxt -> IO ()
 printCtxt c = Box.printBox $ boxName Box.<+> boxType
-    where pairs = (map (\ (name, (m, σ)) -> (showName name, σ)) $ Map.toList $ polyVars c) ++
-                  (map (\ (name, (L _ σ)) -> (showName name, σ)) $ Map.toList $ userDecls c)
-          pairs' = map (fmap (runPretty . prettyPolyTyM)) pairs
-          boxName = Box.vcat Box.left $ map (Box.text . fst) pairs'
-          boxType = Box.vcat Box.left $ map (\ (name, σ) -> Box.text "::" Box.<+> Box.text (show σ)) pairs'
+    where showPolyTy = show . runPretty . prettyPolyTyM
+          -- showTyping m σ = runPretty $ do 
+          --     m' <- prettyMonoM m  
+          --     σ' <- prettyPolyTyM σ
+          --     let typing = map (\ (v, σ) -> showName v ++ "::" ++ show σ) $ getMonoVars m'                
+          --     return $ "{" ++ (intercalate ", " typing) ++ "} ⊢ " ++ show σ'
+          showTyping m σ = showPolyTy σ
+          pairs = (map (\ (name, (m, σ)) -> (showName name,  showTyping m σ)) $ Map.toList $ polyVars c) ++
+                  (map (\ (name, (L _ σ)) -> (showName name, show σ)) $ Map.toList $ userDecls c)
+          boxName = Box.vcat Box.left $ map (Box.text . fst) pairs
+          boxType = Box.vcat Box.left $ map (\ (name, typing) -> Box.text "::" Box.<+> Box.text typing) pairs
 
 boxMonos :: [MonoEnv] -> Box.Box
 boxMonos ms = Box.hsep 2 Box.top $ boxNames:(map boxTypes ms)
