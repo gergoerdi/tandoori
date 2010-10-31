@@ -35,7 +35,7 @@ infer decls group = runTyping $ do
                         withClasses cis $ do
                           insts <- mapM getInstance (hs_instds group)
                           withInstances insts $ do
-                            ctxt <- fst <$> inferValBinds (hs_valds group)
+                            (ctxt, _, _) <- inferValBinds (hs_valds group)
                             withCtxt ctxt $ do
                               mapM_ checkLInstance (hs_instds group)
                             return ctxt
@@ -123,46 +123,53 @@ inferExpr (HsVar x) = do decl <- askUserDecl x
                                                                     Nothing -> Set.empty
                                                                     Just (PolyTy _ τ) -> tvsOf τ
                              
-inferExpr (HsLet binds lexpr)               = do (ctxt, vars) <- inferLocalBinds binds
+inferExpr (HsLet binds lexpr)               = do (ctxt, ms, vars) <- inferLocalBinds binds
                                                  (m, σ) <- withCtxt ctxt $ inferLExpr lexpr
+                                                 (m', _) <- unify (m:ms) []
                                                  let isOutsideVisible var _ = not(var `Set.member` vars)
-                                                     m' = filterMonoVars isOutsideVisible m
-                                                 m' ⊢ σ
+                                                     m'' = filterMonoVars isOutsideVisible m'
+                                                 m'' ⊢ σ
 
 inferExpr (OpApp left op fixity right)      = inferExpr $ HsApp (noLoc $ HsApp op left) right
 -- TODO:
 inferExpr (NegApp expr negfun)              = error "infer': TODO: NegApp"
 inferExpr (HsPar lexpr)                     = inferLExpr lexpr
 
-inferLocalBinds :: HsLocalBinds Name -> Typing (Ctxt, VarSet)
+inferLocalBinds :: HsLocalBinds Name -> Typing (Ctxt, [MonoEnv], VarSet)
 inferLocalBinds (HsValBinds vb)      = inferValBinds vb
 inferLocalBinds (HsIPBinds ipbinds)  = error "inferLocalBinds: HsIPBnds"
 inferLocalBinds EmptyLocalBinds      = do ctxt <- askCtxt
-                                          return (ctxt, Set.empty)
+                                          return (ctxt, [], Set.empty)
 
-inferValBinds :: HsValBinds Name -> Typing (Ctxt, VarSet)
+inferValBinds :: HsValBinds Name -> Typing (Ctxt, [MonoEnv], VarSet)
 inferValBinds (ValBindsOut recbinds lsigs) = do decls <- catMaybes <$> mapM fromSig lsigs
-                                                withUserDecls decls $ listenVars $ inferBindGroups lbindbags
+                                                withUserDecls decls $ do
+                                                  ((ctxt', ms), vars) <- listenVars $ inferBindGroups lbindbags
+                                                  return (ctxt', ms, vars)
     where lbindbags = map snd recbinds
 
           fromSig (L srcloc (TypeSig (L _ name) (L _ ty))) = do τ <- fromHsType ty
                                                                 return $ Just $ (name, L srcloc τ)
           fromSig _ = return Nothing
 
-          inferBindGroups [] = askCtxt
-          inferBindGroups (b:bs) = do ctxt' <- inferBindGroup b lsigs
-                                      withCtxt ctxt' $ inferBindGroups bs
+          inferBindGroups :: [LHsBinds Name] -> Typing (Ctxt, [MonoEnv])
+          inferBindGroups [] = do ctxt' <- askCtxt
+                                  return (ctxt', [])
+          inferBindGroups (b:bs) = do (ctxt', m) <- inferBindGroup b lsigs
+                                      (ctxt'', ms) <- withCtxt ctxt' $ inferBindGroups bs
+                                      return (ctxt'', m:ms)
 
 fromJust' (Nothing) = error "foo"
 fromJust' (Just x) = x
 
-inferBindGroup :: LHsBinds Name -> [LSig Name] -> Typing Ctxt
+inferBindGroup :: LHsBinds Name -> [LSig Name] -> Typing (Ctxt, MonoEnv)
 inferBindGroup lbindbag lsigs = do (m, vars) <- listenVars $ inferBinds lbindbag
                                    tellVars vars
                                    let varmap = map (\ v -> (v, fromJust' $ getMonoVar m v)) $ Set.toList vars
                                    -- TODO: Location
                                    polyvars <- catMaybes <$> mapM (toPoly m) varmap
-                                   addReducedPolyVars polyvars
+                                   ctxt' <- addReducedPolyVars polyvars
+                                   return (ctxt', m)
     where toPoly m (x, σ) = do lookup <- runMaybeT $ lookupDecl x
                                case lookup of
                                  Nothing -> do checkCtxAmbiguity σ
@@ -197,7 +204,7 @@ inferBindGroup lbindbag lsigs = do (m, vars) <- listenVars $ inferBinds lbindbag
           addReducedPolyVars polyvars = do ctxt <- askCtxt
                                            let polyvars' = map reduce polyvars
                                                ctxt' = addPolyVars ctxt polyvars'
-                                           return ctxt'                                                        
+                                           return ctxt'                                     
               where reduce (x, (m, σ@(PolyTy _ τ))) = (x, (filterMonoVars hasOutsideVars m, σ))
                       where hasOutsideVars y (PolyTy _ τ') | y == x = False
                                                            | otherwise = not $ Set.null $ tvs `Set.intersection` tvsOf τ'
