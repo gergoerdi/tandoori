@@ -119,14 +119,17 @@ prettyTyEqM (t :=: u) = do t' <- prettyTyM t
                       
 prettyMonoM = mapMonoM prettyPolyTyM
 
+instance Show MonoEnv where
+  show m = "{" ++ intercalate ", " typing ++ "}"
+    where typing = map (\ (v, σ) -> showName v ++ "::" ++ show σ) $ getMonoVars m
+
 printCtxt :: Ctxt -> IO ()
 printCtxt c = Box.printBox $ boxName Box.<+> boxType
     where showPolyTy = show . runPretty . prettyPolyTyM
           showTyping m σ = runPretty $ do 
               m' <- prettyMonoM m  
               σ' <- prettyPolyTyM σ
-              let typing = map (\ (v, σ) -> showName v ++ "::" ++ show σ) $ getMonoVars m'                
-              return $ "{" ++ (intercalate ", " typing) ++ "} ⊢ " ++ show σ'
+              return $ unwords [show m', "⊢", show σ']
           -- showTyping m σ = showPolyTy σ
           pairs = (map (\ (name, (m, σ)) -> (showName name,  showTyping m σ)) $ Map.toList $ polyVars c) ++
                   (map (\ (name, (L _ σ)) -> (showName name, show σ)) $ Map.toList $ userDecls c)

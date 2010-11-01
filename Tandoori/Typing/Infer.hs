@@ -15,6 +15,8 @@ import Tandoori.Typing.ClassDecl
 import Tandoori.Typing.InstanceDecl
 import Tandoori.Typing.Repr
     
+import Tandoori.Typing.Show
+
 import Control.Monad.Writer
 import Control.Monad.Error
 import Control.Applicative
@@ -45,7 +47,7 @@ infer decls group = runTyping $ do
           checkInstance inst@(InstDecl lty binds lsigs _)  = do
             ((cls, κ), σ) <- instDecl inst
             let PolyTy ctx τ = σ
-            PolyTy ctx' τ' <- instantiatePolyTy (const True) σ
+            PolyTy ctx' τ' <- instantiatePolyTy σ
             ci <- askClass cls
             let checkSuper cls' = withLSrc lty $ do
                   ctx' <- resolvePred (cls', τ)
@@ -80,7 +82,7 @@ inferExpr (HsOverLit overlit) =
   do σ <- typeOfOverLit overlit
      noVars ⊢ σ
 inferExpr (HsVar name) | isDataConName name = 
-  do τ <- (instantiate (const True) =<< askCon name) `orRecover` mkTyVar
+  do τ <- (instantiate =<< askCon name) `orRecover` mkTyVar
      noVars ⊢ PolyTy [] τ
 inferExpr (ExplicitList _ lexprs) = 
   do (ms, σs) <- unzip <$> mapM inferLExpr lexprs
@@ -113,22 +115,19 @@ inferExpr (HsVar x) =
   do decl <- askUserDecl x
      case decl of
        Just lσ  -> 
-         do σ' <- instantiatePolyTy (const True) (unLoc lσ)
+         do σ' <- instantiatePolyTy (unLoc lσ)
             noVars ⊢ σ'
        Nothing   -> 
          do pv <- askPolyVar x
             case pv of
               Nothing -> 
-                do monovars <- askForcedMonoVars
-                   unless (x `Set.member` monovars) $
-                     addError $ UndefinedVar x
+                do --monovars <- askForcedMonoVars
+                   --unless (x `Set.member` monovars) $
+                     --addError $ UndefinedVar x
                    α <- mkTyVar
                    x `typedAs` (PolyTy [] α)
               Just (m, σ) -> 
-                do monovars <- askForcedMonoVars
-                   let monotyvars = Set.unions $ map tvsOfDef $ Set.toList $ monovars
-                       isPoly tv = not (tv `Set.member` monotyvars)                       
-                   (m', σ') <- instantiateTyping isPoly (m, σ)
+                do (m', σ') <- instantiateTyping (m, σ)
                    m' ⊢ σ'
                 where tvsOfDef y = case getMonoVar m y of
                         Nothing -> Set.empty
@@ -137,10 +136,10 @@ inferExpr (HsVar x) =
 inferExpr (HsLet binds lexpr) = 
   do (mBinds, vars) <- inferLocalBinds binds
      (m, σ) <- withPolyVars mBinds vars $ inferLExpr lexpr
-     (m', _) <- unify [m, mBinds] []
+     (m', σ') <- unify [m, mBinds] [σ]
      let isOutsideVisible var _ = not(var `Set.member` vars)
          m'' = filterMonoVars isOutsideVisible m'
-     m'' ⊢ σ
+     m'' ⊢ σ'
 inferExpr (OpApp left op fixity right) = inferExpr $ HsApp (noLoc $ HsApp op left) right
 inferExpr (HsIf cond thn els) = 
   do (mCond, σCond) <- inferLExpr cond
@@ -226,7 +225,7 @@ toPolyCtxt m xs =
                  ctxt' = addPolyVars ctxt polyvars'
              return ctxt'                                     
           where reduce (x, (m, σ@(PolyTy _ τ))) = (x, (filterMonoVars hasOutsideVars m, σ))
-                  where hasOutsideVars y (PolyTy _ τ') | y == x = False
+                  where hasOutsideVars y (PolyTy _ τ') | y `Set.member` xs = False
                                                        | otherwise = not $ Set.null $ tvs `Set.intersection` tvsOf τ'
                         tvs = tvsOf τ
 
