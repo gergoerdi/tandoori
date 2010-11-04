@@ -15,8 +15,6 @@ import Tandoori.Typing.ClassDecl
 import Tandoori.Typing.InstanceDecl
 import Tandoori.Typing.Repr
     
-import Tandoori.Typing.Show
-
 import Control.Monad.Writer
 import Control.Monad.Error
 import Control.Applicative
@@ -239,71 +237,82 @@ inferLBind :: (LHsBind Name) -> Typing MonoEnv
 inferLBind lbind = withLSrc lbind $ inferBind $ unLoc lbind
                                                                                         
 inferBind :: (HsBind Name) -> Typing MonoEnv
-inferBind PatBind{pat_lhs = lpat, pat_rhs = grhss} = do ((m, σ), vars) <- listenVars $ inferLPat lpat -- TODO: add new vars to ctxt
-                                                        (m', σ') <- withMonoVars vars $ inferGRhss grhss
-                                                        (m'', _) <- unify [m, m'] [σ, σ']
-                                                        return m''
+inferBind PatBind{pat_lhs = lpat, pat_rhs = grhss} = 
+  do ((m, σ), vars) <- listenVars $ inferLPat lpat
+     (m', σ') <- withMonoVars vars $ inferGRhss grhss
+     (m'', _) <- unify [m, m'] [σ, σ']
+     return m''
 inferBind VarBind{} = error "VarBind"
-inferBind FunBind{fun_matches = MatchGroup lmatches _, fun_id = (L _ name)} = do tellVar name
-                                                                                 -- TODO: why not introduce new monovars per group?
-                                                                                 -- because each member of a group sends up its own idea of the others (in Δ), and they are unified later in the group level
-                                                                                 (ms, σs) <- withMonoVars (Set.singleton name) $ stopVars $ 
-                                                                                            unzip <$> mapM inferLMatch lmatches
-                                                                                 (m, σ) <- unify ms σs
-                                                                                 return $ addMonoVar m (name, σ)
+inferBind FunBind{fun_matches = MatchGroup lmatches _, fun_id = (L _ f)} = 
+  do tellVar f
+     -- TODO: why not introduce new monovars per group?
+     -- because each member of a group sends up its own idea of the others (in Δ), and they are unified later in the group level
+     (ms, σs) <- withMonoVars (Set.singleton f) $ stopVars $ 
+                  unzip <$> mapM inferLMatch lmatches
+     (m, σ) <- unify ms σs
+     return $ addMonoVar m (f, σ)
 
 inferLMatch :: (LMatch Name) -> Typing (MonoEnv, PolyTy)
 inferLMatch lmatch = doLoc (getLoc lmatch) $ inferMatch $ unLoc lmatch
                                
 inferMatch :: (Match Name) -> Typing (MonoEnv, PolyTy)
-inferMatch (Match lpats _ grhss) = do ((ms, σs), vars) <- stopVars $ listenVars $ (unzip <$> mapM inferLPat lpats)
-                                      (m, σ) <- withMonoVars vars $ inferGRhss grhss
-                                      (m', σ') <- unify (m:ms) [ptyCurryFun (σs ++ [σ])]
-                                      let m'' = filterMonoVars (\ v ty -> not (Set.member v vars)) m'
-                                      m'' ⊢ σ'
+inferMatch (Match lpats _ grhss) = 
+  do ((ms, σs), vars) <- stopVars $ listenVars $ (unzip <$> mapM inferLPat lpats)
+     (m, σ) <- withMonoVars vars $ inferGRhss grhss
+     (m', σ') <- unify (m:ms) [ptyCurryFun (σs ++ [σ])]
+     let m'' = filterMonoVars (\ v ty -> not (Set.member v vars)) m'
+     m'' ⊢ σ'
 
 
 inferGRhs (GRHS _ lexpr) = inferLExpr lexpr
-inferGRhss (GRHSs lgrhss _) = do (ms, σs) <- unzip <$> mapM (inferGRhs . unLoc) lgrhss
-                                 -- TODO: typecheck guards
-                                 (m, σ) <- unify ms σs
-                                 m ⊢ σ
+inferGRhss (GRHSs lgrhss _) = 
+  do (ms, σs) <- unzip <$> mapM (inferGRhs . unLoc) lgrhss
+     -- TODO: typecheck guards
+     (m, σ) <- unify ms σs
+     m ⊢ σ
 
                                              
 inferLPat :: Located (Pat Name) -> Typing (MonoEnv, PolyTy)
 inferLPat lpat = withLSrc lpat $ inferPat $ unLoc lpat
                                      
 inferPat :: Pat Name -> Typing (MonoEnv, PolyTy)
-inferPat (AsPat (L _ name) lpat)           = do tellVar name
-                                                (m, σ) <- inferLPat lpat                                                
-                                                let m' = addMonoVar m (name, σ)
-                                                m' ⊢ σ
-inferPat (ParPat lpat)                     = inferLPat lpat
-inferPat (WildPat _)                       = do α <- mkTyVar
-                                                noVars ⊢ PolyTy [] α
-inferPat (VarPat name)                     = do tellVar name
-                                                α <- mkTyVar
-                                                name `typedAs` (PolyTy [] α)
-inferPat (LitPat lit)                      = noVars ⊢ (PolyTy [] $ typeOfLit lit)
-inferPat (ConPatIn (L _ con) details)  = do τCon <- askCon con -- TODO: errors
-                                            (ms, σs) <- unzip <$> mapM inferLPat lpats
-                                            α <- mkTyVar
-                                            (m, σ) <- unify ms [PolyTy [] τCon, ptyCurryFun (σs ++ [PolyTy [] α])]
-                                            m ⊢ ptyFunResult σ
-    where lpats = case details of
-                    PrefixCon lpats -> lpats
-                    InfixCon lp lp' -> [lp, lp']
-          ptyFunResult (PolyTy ctx τ) = PolyTy ctx (tyRightmost τ)
-          tyRightmost (TyFun τ1 τ2) = tyRightmost τ2
-          tyRightmost τ             = τ
-                                                 
-inferPat (TuplePat lpats _ _)              = do (ms, σs) <- unzip <$> mapM inferLPat lpats
-                                                combineMonos ms ⊢ ptyTuple σs
-inferPat (ListPat lpats _)                 = do (ms, σs) <- unzip <$> mapM inferLPat lpats
-                                                (m, σ) <- unify ms σs
-                                                m ⊢ ptyList σ
-inferPat (NPat overlit _ _)                = do σ <- typeOfOverLit overlit
-                                                noVars ⊢ σ
+inferPat (AsPat (L _ name) lpat) = 
+  do tellVar name
+     (m, σ) <- inferLPat lpat                                                
+     let m' = addMonoVar m (name, σ)
+     m' ⊢ σ
+inferPat (ParPat lpat) = inferLPat lpat
+inferPat (WildPat _) = 
+  do α <- mkTyVar
+     noVars ⊢ PolyTy [] α
+inferPat (VarPat name) = 
+  do tellVar name
+     α <- mkTyVar
+     name `typedAs` (PolyTy [] α)
+inferPat (LitPat lit) = noVars ⊢ (PolyTy [] $ typeOfLit lit)
+inferPat (ConPatIn (L _ con) details)  = 
+  do τCon <- askCon con -- TODO: errors
+     (ms, σs) <- unzip <$> mapM inferLPat lpats
+     α <- mkTyVar
+     (m, σ) <- unify ms [PolyTy [] τCon, ptyCurryFun (σs ++ [PolyTy [] α])]
+     m ⊢ ptyFunResult σ
+  where lpats = 
+          case details of
+            PrefixCon lpats -> lpats
+            InfixCon lp lp' -> [lp, lp']
+        ptyFunResult (PolyTy ctx τ) = PolyTy ctx (tyRightmost τ)
+        tyRightmost (TyFun τ1 τ2) = tyRightmost τ2
+        tyRightmost τ             = τ                                                 
+inferPat (TuplePat lpats _ _) =              
+  do (ms, σs) <- unzip <$> mapM inferLPat lpats
+     combineMonos ms ⊢ ptyTuple σs
+inferPat (ListPat lpats _) =                
+  do (ms, σs) <- unzip <$> mapM inferLPat lpats
+     (m, σ) <- unify ms σs
+     m ⊢ ptyList σ
+inferPat (NPat overlit _ _) =               
+  do σ <- typeOfOverLit overlit
+     noVars ⊢ σ
                                              
 infix 1 ⊢
 (⊢) :: MonoEnv -> PolyTy -> Typing (MonoEnv, PolyTy)                                             
