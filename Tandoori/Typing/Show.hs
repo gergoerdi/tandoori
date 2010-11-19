@@ -93,13 +93,10 @@ instance Outputable ErrorContent where
               source = case typingErrorSrc tyerr of
                 Just x -> text "when unifying " <> (quotes . text . showName) x
                 Nothing -> empty
-    ppr (CantFitDecl tyDecl ty)          = text "Declared type" <+> text (show tyDecl') <+> text "is not a special case of inferred type" <+> text (show ty')
-        where (tyDecl', ty') = runPretty $ do σDecl' <- prettyPolyTyM tyDecl
-                                              σ' <- prettyPolyTyM ty
-                                              return (σDecl', σ')
+    ppr (CantFitDecl σDecl (m, τ))       = text "Declared type" <+> text (show σDecl) <+> text "is not a special case of inferred typing" <+> text (showTyping m τ)
     ppr (InvalidCon σ)                   = text "Invalid constructor signature" <+> text (show σ)
     ppr (ClassCycle clss)                = text "Cycle in superclass hierarchy" <> colon <+> sep (punctuate comma $ map (quotes . text . showName) clss)
-    ppr (AmbiguousPredicate (cls, α))  = text "Ambiguous predicate" <+> text (showPred (cls, τ'))
+    ppr (AmbiguousPredicate j (cls, α))  = text "Ambiguous predicate" <+> text (showPred (cls, τ'))
         where τ' = prettyTy (TyVar α)
     ppr (UnfulfilledPredicate (cls, τ))  = text "Unfulfilled predicate" <+> text (showPred (cls, τ'))
         where τ' = prettyTy τ
@@ -122,14 +119,14 @@ instance Show MonoEnv where
     where typing = map (\ (x, τ) -> showName x ++ "::" ++ show τ) $ getMonoVars m
           preds = map (\ (cls, α) -> unwords [showName cls, showName α]) $ getMonoPreds m
 
+showTyping m τ = runPretty $ do 
+  m' <- prettyMonoM m  
+  τ' <- prettyTyM τ
+  return $ unwords [show m', "⊢", show τ']
+  
 printCtxt :: Ctxt -> IO ()
 printCtxt c = Box.printBox $ boxName Box.<+> boxType
     where showPolyTy = show . runPretty . prettyPolyTyM
-          showTyping m τ = runPretty $ do 
-              m' <- prettyMonoM m  
-              τ' <- prettyTyM τ
-              return $ unwords [show m', "⊢", show τ']
-          -- showTyping m σ = showPolyTy σ
           pairs = (map (\ (name, (L _ σ)) -> (showName name, show σ)) $ Map.toList $ userDecls c) ++
                   (map (\ (name, (m, τ)) -> (showName name,  showTyping m τ)) $ Map.toList $ polyVars c)     
           boxName = Box.vcat Box.left $ map (Box.text . fst) pairs

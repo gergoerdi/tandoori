@@ -1,4 +1,4 @@
-module Tandoori.Typing.Error (ErrorLocation(..), ErrorMessage(..), TypingError(..), TypingErrorContent(..), ErrorContent(..)) where
+module Tandoori.Typing.Error (ErrorLocation(..), ErrorMessage(..), TypeJudgement(..), TypingError(..), TypingErrorContent(..), ErrorContent(..)) where
 
 import Tandoori
 import Tandoori.GHC.Internals
@@ -18,17 +18,20 @@ data TypingError = TypingError { typingErrorSrc :: Maybe VarName,
 instance Error TypingError where
     strMsg = undefined
                   
+data TypeJudgement = Declared PolyTy             
+                   | Inferred (MonoEnv, Ty)
+             
 data ErrorContent = UndefinedCon ConName
                   | UndefinedVar VarName
                   | UndefinedCls Cls
                   | UnificationFailed [MonoEnv] TypingError
-                  | CantFitDecl PolyTy PolyTy
+                  | CantFitDecl PolyTy (MonoEnv, Ty)
                   | ClassCycle [Cls]
                   | InvalidClassCtx (Cls, Tv) PolyPred
                   | MissingBaseInstances OverPred PolyCtx
                   | InvalidInstance
                   | InvalidCon PolyTy
-                  | AmbiguousPredicate PolyPred
+                  | AmbiguousPredicate TypeJudgement PolyPred
                   | UnfulfilledPredicate OverPred
                   | OtherError String
 

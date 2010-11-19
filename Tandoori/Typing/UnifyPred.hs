@@ -6,7 +6,8 @@ import Tandoori.Typing.Monad
 import Tandoori.Typing.Error
 import Tandoori.Typing.Unify
 import Tandoori.Typing.Substitute
-    
+import Tandoori.Typing.MonoEnv    
+
 import MonadUtils (anyM)
 import Control.Monad.Error
 import Control.Applicative
@@ -14,6 +15,8 @@ import Data.Maybe
 import Data.Monoid
 import qualified Data.Set as Set
 import Data.Set (Set)
+
+substMono θ m = mapMonoM' (return . substTy θ) (substPreds θ) m
 
 substPred :: Subst -> PolyPred -> Typing [PolyPred]
 substPred θ (cls, α) = resolvePred (cls, substTy θ (TyVar α))

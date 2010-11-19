@@ -40,7 +40,7 @@ infer decls group = runTyping $ do
                           withInstances insts $ do
                             let valbinds@(ValBindsOut _ lsigs) = hs_valds group
                             (m, vars) <- inferValBinds valbinds
-                            withLSigs lsigs $ withPolyVars m vars $ do
+                            withLSigs lsigs $ withPolyVars False m vars $ do
                               mapM_ checkLInstance (hs_instds group)
                               askCtxt
 
@@ -74,7 +74,7 @@ typeOfOverLit (OverLit { ol_val = val }) =
      let cls = case val of
            HsIntegral _ -> numClassName
      return $ PolyTy [(cls, α)] (TyVar α)
-     -- return $ PolyTy [] tyInt -- Comment this out to have non-polymorph integer literals
+     return $ PolyTy [] tyInt -- Comment this out to have non-polymorph integer literals
                                                              
 inferLExpr :: Located TanExpr -> Typing (MonoEnv, Ty)
 inferLExpr lexpr = withLSrc lexpr $ inferExpr $ unLoc lexpr
@@ -134,7 +134,7 @@ inferExpr (HsVar x) =
                    m' ⊢ τ'                                                
 inferExpr (HsLet binds lexpr) = 
   do (mBinds, vars) <- inferLocalBinds binds
-     ((m, τ), mBinds') <- withPolyVars mBinds vars $ inferLExpr lexpr
+     ((m, τ), mBinds') <- withPolyVars False mBinds vars $ inferLExpr lexpr
      (m', τ') <- unify [m, mBinds'] [τ]
      let isOutsideVisible var _ = not(var `Set.member` vars)
          m'' = filterMonoVars isOutsideVisible m'
@@ -155,7 +155,7 @@ inferExpr (HsPar lexpr) = inferLExpr lexpr
 inferLocalBinds :: HsLocalBinds Name -> Typing (MonoEnv, VarSet)
 inferLocalBinds (HsValBinds vb)      = inferValBinds vb
 inferLocalBinds (HsIPBinds ipbinds)  = error "inferLocalBinds: HsIPBnds"
-inferLocalBinds EmptyLocalBinds      = do return (noVars, Set.empty)
+inferLocalBinds EmptyLocalBinds      = return (noVars, mempty)
 
 withLSigs lsigs f = 
   do decls <- catMaybes <$> mapM fromSig lsigs
@@ -172,7 +172,7 @@ inferBindGroups :: [LHsBinds Name] -> Typing MonoEnv
 inferBindGroups [] = return noVars
 inferBindGroups (b:bs) = 
   do (m, vars) <- listenVars $ inferBinds b
-     (mNext, m') <- withPolyVars m vars $ inferBindGroups bs
+     (mNext, m') <- withPolyVars True m vars $ inferBindGroups bs
      (m'', _) <- unify [mNext, m, m'] []
      return m''
      
@@ -180,33 +180,39 @@ checkMonoAmbiguity :: MonoEnv -> Ty -> Typing ()
 checkMonoAmbiguity m τ = 
   do forM_ (getMonoPreds m) $ \(cls, α) ->
        unless (α `Set.member` tvs) $ 
-         trace (unwords [showName cls, showName α, show τ, show m]) $ return () -- addError $ AmbiguousPredicate (cls, α)       
+         do -- trace (unwords [showName cls, showName α, show τ, show m]) $ return ()
+            addError $ AmbiguousPredicate (Inferred (m, τ)) (cls, α)       
   where
     tvs = tvsOf τ `Set.union` (mconcat $ map (tvsOf . snd) $ getMonoVars m)
 
--- checkCtxAmbiguity σ@(PolyTy ctx τ) = 
---   do forM_ ctx $ \(cls, α) -> 
---        unless (α `Set.member` tvs) $ raiseError $ AmbiguousPredicate σ (cls, α)
---   where 
---     tvs = tvsOf τ
+checkCtxAmbiguity σ@(PolyTy ctx τ) = 
+  do forM_ ctx $ \(cls, α) -> 
+       unless (α `Set.member` tvs) $ raiseError $ AmbiguousPredicate (Declared σ) (cls, α)
+  where 
+    tvs = tvsOf τ
                                                                            
--- checkDecl σDecl@(PolyTy ctxDecl τDecl) σ@(PolyTy ctx τ) = 
---   do fit <- runErrorT $ fitDeclTy τDecl τ
---      case fit of
---        Left err -> raiseError $ CantFitDecl σDecl σ
---        Right θ -> 
---          do σ'@(PolyTy ctx' _) <- subst θ σ
---             ctxOk <- ctxDecl `satisfies` ctx'
---             unless ctxOk $ raiseError $ CantFitDecl σDecl σ'
+checkDecl :: PolyTy -> (MonoEnv, Ty) -> Typing ()
+checkDecl σDecl@(PolyTy ctxDecl τDecl) (m, τ) = 
+  do fit <- runErrorT $ fitDeclTy τDecl τ
+     case fit of
+       Left err -> raiseError $ CantFitDecl σDecl (m, τ)
+       Right θ -> 
+         do let τ' = substTy θ τ
+            m' <- substMono θ m
+            let ctx' = getMonoPreds m'
+            -- trace (unlines [show m', show τ, show τ'])$ return ()
+            ctxOk <- ctxDecl `satisfies` ctx'
+            unless ctxOk $ raiseError $ CantFitDecl σDecl (m', τ')
           
-withPolyVars :: MonoEnv -> VarSet -> Typing a -> Typing (a, MonoEnv)
-withPolyVars m xs f =
-  do (ctxt, m) <- toPolyCtxt m xs
+withPolyVars :: Bool -> MonoEnv -> VarSet -> Typing a -> Typing (a, MonoEnv)
+withPolyVars checkDecls m xs f =
+  do --trace (unwords $ "withPolyVars":(map showName $ Set.toList xs)) $ return ()
+     (ctxt, m) <- toPolyCtxt checkDecls m xs
      res <- withCtxt ctxt f
      return (res, m)
          
-toPolyCtxt :: MonoEnv -> VarSet -> Typing (Ctxt, MonoEnv)
-toPolyCtxt m xs = 
+toPolyCtxt :: Bool -> MonoEnv -> VarSet -> Typing (Ctxt, MonoEnv)
+toPolyCtxt checkDecls m xs = 
   do let m' = filterMonoVars (\ x _ -> x `Set.notMember` xs) m
          tvsOuter = mconcat $ map (tvsOf . snd) $ getMonoVars m'
          m'' = filterMonoPreds (\ (cls, α) -> α `Set.member` tvsOuter) m'
@@ -224,8 +230,8 @@ toPolyCtxt m xs =
                     return $ Just (x, (m, τ))
                Just (L loc σDecl) -> 
                  doLoc loc $ 
-                   do -- checkDecl σDecl σ -- TODO
-                      -- checkCtxAmbiguity σDecl -- TODO
+                   do when checkDecls $ checkDecl σDecl (m, τ) -- TODO
+                      checkCtxAmbiguity σDecl
                       return Nothing
 
         addReducedPolyVars :: [(VarName, (MonoEnv, Ty))] -> Typing Ctxt
@@ -336,7 +342,7 @@ m ⊢ τ = do let m' = setMonoTy m τ
            let m'' = case src of
                  Nothing -> m'
                  Just src -> setMonoSrc m' src
-           trace (unwords ["    ", maybe "" showSDoc src, show m'', "|-", show τ]) $ return ()
+           -- trace (unwords ["    ", maybe "" showSDoc src, show m'', "|-", show τ]) $ return ()
            return (m'', τ)
                                              
 typedAs :: VarName -> PolyTy -> Typing (MonoEnv, Ty)
@@ -367,4 +373,3 @@ unify ms τs =
                   do tv <- mkTyVar
                      return (var, tv)
         vars = concatMap getMonoVars ms
-        substMono θ m = mapMonoM' (return . substTy θ) (substPreds θ) m
