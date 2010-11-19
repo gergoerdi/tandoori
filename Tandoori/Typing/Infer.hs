@@ -52,10 +52,10 @@ infer decls group = runTyping $ do
             let PolyTy ctx τ = σ
             PolyTy ctx' τ' <- instantiatePolyTy σ
             ci <- askClass cls
-            let checkSuper cls' = withLSrc lty $ do
-                  ctx' <- resolvePred (cls', τ)
+            let checkSuper cls' = withLSrc lty $ do 
+                  Right ctx' <- runErrorT $ resolvePred (cls', τ)
                   superOK <- ctx `satisfies` ctx'
-                  unless superOK $ do
+                  unless superOK $
                     raiseError $ MissingBaseInstances (cls, τ) ctx'
                 checkMember lbind = return () -- TODO
             mapM_ checkSuper (clsSupers ci)
@@ -135,7 +135,8 @@ inferExpr (HsVar x) =
 inferExpr (HsLet binds lexpr) = 
   do (mBinds, vars) <- inferLocalBinds binds
      ((m, τ), mBinds') <- withPolyVars False mBinds vars $ inferLExpr lexpr
-     (m', τ') <- unify [m, mBinds'] [τ]
+     let mBinds'' = setMonoSrc mBinds' $ text "<definitions>"
+     (m', τ') <- unify [m, mBinds''] [τ]
      let isOutsideVisible var _ = not(var `Set.member` vars)
          m'' = filterMonoVars isOutsideVisible m'
      m'' ⊢ τ'
@@ -198,21 +199,21 @@ checkDecl σDecl@(PolyTy ctxDecl τDecl) (m, τ) =
        Left err -> raiseError $ CantFitDecl σDecl (m, τ)
        Right θ -> 
          do let τ' = substTy θ τ
-            m' <- substMono θ m
+            Right m' <- runErrorT $ substMono θ m
             let ctx' = getMonoPreds m'
             -- trace (unlines [show m', show τ, show τ'])$ return ()
             ctxOk <- ctxDecl `satisfies` ctx'
             unless ctxOk $ raiseError $ CantFitDecl σDecl (m', τ')
           
 withPolyVars :: Bool -> MonoEnv -> VarSet -> Typing a -> Typing (a, MonoEnv)
-withPolyVars checkDecls m xs f =
+withPolyVars check m xs f =
   do --trace (unwords $ "withPolyVars":(map showName $ Set.toList xs)) $ return ()
-     (ctxt, m) <- toPolyCtxt checkDecls m xs
+     (ctxt, m) <- toPolyCtxt check m xs
      res <- withCtxt ctxt f
      return (res, m)
          
 toPolyCtxt :: Bool -> MonoEnv -> VarSet -> Typing (Ctxt, MonoEnv)
-toPolyCtxt checkDecls m xs = 
+toPolyCtxt check m xs = 
   do let m' = filterMonoVars (\ x _ -> x `Set.notMember` xs) m
          tvsOuter = mconcat $ map (tvsOf . snd) $ getMonoVars m'
          m'' = filterMonoPreds (\ (cls, α) -> α `Set.member` tvsOuter) m'
@@ -226,12 +227,13 @@ toPolyCtxt checkDecls m xs =
              lookup <- askUserDecl x
              case lookup of
                Nothing -> 
-                 do checkMonoAmbiguity m τ
+                 do when check $ checkMonoAmbiguity m τ
                     return $ Just (x, (m, τ))
                Just (L loc σDecl) -> 
                  doLoc loc $ 
-                   do when checkDecls $ checkDecl σDecl (m, τ) -- TODO
-                      checkCtxAmbiguity σDecl
+                   do when check $ 
+                        do checkDecl σDecl (m, τ)
+                           checkCtxAmbiguity σDecl
                       return Nothing
 
         addReducedPolyVars :: [(VarName, (MonoEnv, Ty))] -> Typing Ctxt
@@ -251,7 +253,7 @@ toPolyCtxt checkDecls m xs =
 
 inferBinds :: LHsBinds Name -> Typing MonoEnv
 inferBinds lbindbag = do let lbinds = bagToList lbindbag
-                         ms <- mapM inferLBind lbinds
+                         ms <- mapM inferLBind lbinds                         
                          (m, _) <- unify ms []
                          return m
               
@@ -263,7 +265,8 @@ inferBind PatBind{pat_lhs = lpat, pat_rhs = grhss} =
   do ((m, σ), vars) <- listenVars $ inferLPat lpat
      (m', σ') <- withMonoVars vars $ inferGRhss grhss
      (m'', _) <- unify [m, m'] [σ, σ']
-     return m''
+     src <- askSrc -- TODO
+     return $ maybe m'' (setMonoSrc m'') src
 inferBind VarBind{} = error "VarBind"
 inferBind FunBind{fun_matches = MatchGroup lmatches _, fun_id = (L _ f)} = 
   do tellVar f
@@ -271,8 +274,10 @@ inferBind FunBind{fun_matches = MatchGroup lmatches _, fun_id = (L _ f)} =
      -- because each member of a group sends up its own idea of the others (in Δ), and they are unified later in the group level
      (ms, τs) <- withMonoVars (Set.singleton f) $ stopVars $ 
                   unzip <$> mapM inferLMatch lmatches
-     (m, τ) <- unify ms τs
-     return $ addMonoVar m (f, PolyTy [] τ)
+     (m, τ) <- unify ms τs     
+     src <- askSrc
+     let m' = maybe m (setMonoSrc m) src
+     return $ addMonoVar m' (f, PolyTy [] τ)
 
 inferLMatch :: (LMatch Name) -> Typing (MonoEnv, Ty)
 inferLMatch lmatch = doLoc (getLoc lmatch) $ inferMatch $ unLoc lmatch
@@ -351,17 +356,18 @@ x `typedAs` σ@(PolyTy ctx τ) = (addMonoVar noVars (x, σ)) ⊢ τ
 
 unify :: [MonoEnv] -> [Ty] -> Typing (MonoEnv, Ty)
 unify ms τs = 
-  do eqs <- monoeqs
-     α <- mkTyVar
-     let eqs' = map (\ τ -> (Nothing, α :=: τ)) τs
-     u <- runErrorT $ mgu $ eqs ++ eqs'
-     case u of
-       Left err -> raiseError $ UnificationFailed ms err
-       Right θ -> 
-         do ms' <- mapM (substMono θ) ms
-            let τ = substTy θ α
-            return (combineMonos ms', τ)
-         `orRecover` return (combineMonos ms, α)
+  do α <- mkTyVar
+     do eqs <- monoeqs     
+        let eqs' = map (\ τ -> (Nothing, α :=: τ)) τs
+        u <- runErrorT $ do
+          θ <- mgu $ eqs ++ eqs'
+          ms' <- mapM (substMono θ) ms
+          let τ = substTy θ α
+          return (combineMonos ms', τ)
+        case u of
+          Left err -> raiseError $ UnificationFailed ms err
+          Right (ms', τ) -> return (ms', τ)
+       `orRecover` return (combineMonos ms, α)
                         
   where getCtx (PolyTy ctx _) = ctx
         monoeqs = 

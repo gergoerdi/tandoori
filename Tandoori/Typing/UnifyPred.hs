@@ -1,5 +1,4 @@
--- module Tandoori.Typing.UnifyPred (subst, resolvePred, satisfies) where
-module Tandoori.Typing.UnifyPred where
+module Tandoori.Typing.UnifyPred (substMono, resolvePred, satisfies) where
 
 import Tandoori.Typing
 import Tandoori.Typing.Monad
@@ -18,30 +17,27 @@ import Data.Set (Set)
 
 substMono θ m = mapMonoM' (return . substTy θ) (substPreds θ) m
 
-substPred :: Subst -> PolyPred -> Typing [PolyPred]
+substPred :: Subst -> PolyPred -> ErrorT TypingError Typing [PolyPred]
 substPred θ (cls, α) = resolvePred (cls, substTy θ (TyVar α))
 
-substPreds :: Subst -> Set PolyPred -> Typing (Set PolyPred)
+substPreds :: Subst -> Set PolyPred -> ErrorT TypingError Typing (Set PolyPred)
 substPreds θ ctx = 
   do πs <- concat <$> (mapM (substPred θ) $ Set.toList ctx)
-     Set.fromList <$> simplifyCtx πs
+     Set.fromList <$> lift (simplifyCtx πs)
 
-substCtx :: Subst -> PolyCtx -> Typing PolyCtx
+substCtx :: Subst -> PolyCtx -> ErrorT TypingError Typing PolyCtx
 substCtx θ ctx = concat <$> mapM (substPred θ) ctx
           
--- subst θ (PolyTy ctx τ) = do let τ' = substTy θ τ
---                             ctx' <- simplifyCtx =<< substCtx θ ctx     
---                             return $ PolyTy ctx' τ'
-                                   
-resolvePred :: OverPred -> Typing PolyCtx
-resolvePred (cls, τ) = case τ of
-                         TyVar α -> return [(cls, α)]
-                         τ       -> do let κ = fromJust $ tyCon τ
-                                       instData <- askInstance cls κ
-                                       case instData of
-                                         Nothing -> raiseError $ UnfulfilledPredicate (cls, τ)
-                                         Just (PolyTy ctx τ') -> do Right θ <- runErrorT $ fitDeclTy τ τ'
-                                                                    substCtx θ ctx
+resolvePred :: OverPred -> ErrorT TypingError Typing PolyCtx
+resolvePred (cls, τ) = 
+  case τ of
+    TyVar α -> return [(cls, α)]
+    τ       -> do let κ = fromJust $ tyCon τ
+                  instData <- lift $ askInstance cls κ
+                  case instData of
+                    Nothing -> throwError $ TypingError Nothing $ UnfulfilledPredicate (cls, τ)
+                    Just (PolyTy ctx τ') -> do θ <- fitDeclTy τ τ'
+                                               substCtx θ ctx
 
 simplifyCtx :: PolyCtx -> Typing PolyCtx
 simplifyCtx [] = return []

@@ -12,6 +12,7 @@ data ErrorMessage = ErrorMessage ErrorLocation ErrorContent
 
 data TypingErrorContent = Unsolvable TyEq
                         | InfiniteType TyEq
+                        | UnfulfilledPredicate OverPred
 data TypingError = TypingError { typingErrorSrc :: Maybe VarName,
                                  typingErrorContent :: TypingErrorContent }
 
@@ -32,7 +33,7 @@ data ErrorContent = UndefinedCon ConName
                   | InvalidInstance
                   | InvalidCon PolyTy
                   | AmbiguousPredicate TypeJudgement PolyPred
-                  | UnfulfilledPredicate OverPred
+                  -- | UnfulfilledPredicate OverPred
                   | OtherError String
 
 instance Error ErrorMessage where

@@ -1,4 +1,3 @@
-{-# LANGUAGE FlexibleInstances #-}
 module Tandoori.Typing.Show(printCtxt, showName) where
 
 import Tandoori.GHC.Internals
@@ -51,6 +50,9 @@ showName name = if isSymOcc occName || isDataSymOcc occName then "(" ++ s ++ ")"
   where occName = nameOccName name
         s = occNameString occName
 
+showPolyPred :: PolyPred -> String
+showPolyPred (cls, α) = unwords [showName cls, showName α]
+
 showPreds :: OverCtx -> String
 showPreds [] = ""
 showPreds [pred] = unwords [showPred pred, "=> "]
@@ -82,32 +84,42 @@ showFailedEqs sep tyeqs = unwords $ map (\ (t1 :=: t2) -> unwords [show t1, sep,
 instance Outputable TypingErrorContent where
     ppr (Unsolvable (τ1 :=: τ2)) = text "Cannot unify" <+> quotes (text (show τ1)) <+> text "with" <+> quotes (text (show τ2))
     ppr (InfiniteType (τ1 :=: τ2)) = text "Occurs check failed: infinite type" <+> text (show τ1) <+> text "=" <+> text (show τ2)
+    ppr (UnfulfilledPredicate pred) = text "Unfulfilled predicate" <+> text (showPred pred)
                           
 instance Outputable ErrorContent where
-    ppr (UndefinedCon name)              = text "Reference to undefined constructor" <+> quotes (ppr name)
-    ppr (UndefinedVar name)              = text "Reference to undefined variable" <+> quotes (ppr name)
-    ppr (UnificationFailed ms tyerr)     = ppr tyerr' <+> source <> colon $$ text (Box.render $ boxMonos ms')
+    ppr (UndefinedCon name) = text "Reference to undefined constructor" <+> quotes (ppr name)    
+    ppr (UndefinedVar name) = text "Reference to undefined variable" <+> quotes (ppr name)      
+    ppr (UnificationFailed ms tyerr) = 
+      ppr tyerr' <+> source <> colon $$ text (Box.render $ boxMonos ms')
         where (ms', tyerr') = runPretty $ do ms' <- mapM prettyMonoM ms
                                              tyerr' <- prettyTypingErrorM (typingErrorContent tyerr)
                                              return (ms', tyerr')
               source = case typingErrorSrc tyerr of
                 Just x -> text "when unifying " <> (quotes . text . showName) x
-                Nothing -> empty
-    ppr (CantFitDecl σDecl (m, τ))       = text "Declared type" <+> text (show σDecl) <+> text "is not a special case of inferred typing" <+> text (showTyping m τ)
-    ppr (InvalidCon σ)                   = text "Invalid constructor signature" <+> text (show σ)
-    ppr (ClassCycle clss)                = text "Cycle in superclass hierarchy" <> colon <+> sep (punctuate comma $ map (quotes . text . showName) clss)
-    ppr (AmbiguousPredicate j (cls, α))  = text "Ambiguous predicate" <+> text (showPred (cls, τ'))
+                Nothing -> empty                
+    ppr (CantFitDecl σDecl (m, τ)) = 
+      text "Declared type" <+> text (show σDecl) <+> 
+      text "is not a special case of inferred typing" <+> text (showTyping m τ)      
+    ppr (InvalidCon σ) = 
+      text "Invalid constructor signature" <+> text (show σ)      
+    ppr (ClassCycle clss) = 
+      text "Cycle in superclass hierarchy" <> colon <+> 
+      sep (punctuate comma $ map (quotes . text . showName) clss)
+    ppr (AmbiguousPredicate j (cls, α))  = 
+      text "Ambiguous predicate" <+> text (showPred (cls, τ'))
         where τ' = prettyTy (TyVar α)
-    ppr (UnfulfilledPredicate (cls, τ))  = text "Unfulfilled predicate" <+> text (showPred (cls, τ'))
-        where τ' = prettyTy τ
-    ppr (MissingBaseInstances (cls, τ) πs) = text "Missing base instances of" <+> text (showPred (cls, τ)) <> colon <+> sep (punctuate comma $ map (text . showPred) $ fromPolyCtx πs)
-    ppr InvalidInstance                  = text "Invalid instance declaration"
-    ppr (OtherError message  )           = text message
-    ppr (UndefinedCls cls)               = text "Undefined class" <+> text (showName cls)
+    ppr (MissingBaseInstances (cls, τ) πs) = 
+      text "Missing base instances of" <+> text (showPred (cls, τ)) <> colon <+> 
+      sep (punctuate comma $ map (text . showPred) $ fromPolyCtx πs)
+    ppr InvalidInstance =  text "Invalid instance declaration"
+    ppr (UndefinedCls cls) = text "Undefined class" <+> text (showName cls)
+    ppr (OtherError message) = text message
     
 prettyTypingErrorM (Unsolvable eq) = Unsolvable <$> prettyTyEqM eq
 prettyTypingErrorM (InfiniteType eq) = InfiniteType <$> prettyTyEqM eq
-                                           
+prettyTypingErrorM (UnfulfilledPredicate (cls, τ)) = do τ' <- prettyTyM τ
+                                                        return $ UnfulfilledPredicate (cls, τ')
+                                       
 prettyTyEqM (t :=: u) = do t' <- prettyTyM t
                            u' <- prettyTyM u
                            return $ t' :=: u'
@@ -142,5 +154,15 @@ boxMonos ms = Box.hsep 2 Box.top $ boxNames:(map boxTypes ms)
           
           boxType m v = Box.text $ maybe "" show $ getMonoVar m v
                           
-          boxNames = Box.vcat Box.left $ (Box.text ""):(Box.text ""):(map ((Box.<+> Box.text "::").(Box.text . showName)) vars)
-          boxTypes m = Box.vcat Box.left $ (Box.text $ maybe "" showSDocUnqual $ getMonoSrc m):(Box.text $ maybe "" show $ getMonoTy m):(map (boxType m) vars)          
+          boxNames = Box.vcat Box.left $ 
+                     (Box.text ""):
+                     (Box.text ""):
+                     (Box.text "Predicates:"):
+                     (map ((Box.<+> Box.text "::").(Box.text . showName)) vars)
+          boxTypes m = Box.vcat Box.left $ boxSrc:boxTy:boxPreds:boxsTyVars
+            where 
+              boxSrc = Box.text $ maybe "" showSDocUnqual $ getMonoSrc m
+              boxTy = Box.text $ maybe "" show $ getMonoTy m
+              boxsTyVars = map (boxType m) vars
+              boxPreds = Box.text $ intercalate ", " $ map showPolyPred (getMonoPreds m)
+                  
