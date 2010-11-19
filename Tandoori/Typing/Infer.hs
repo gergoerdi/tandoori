@@ -38,8 +38,9 @@ infer decls group = runTyping $ do
                         withClasses cis $ do
                           insts <- mapM getInstance (hs_instds group)
                           withInstances insts $ do
-                            (m, vars) <- inferValBinds (hs_valds group)
-                            withPolyVars m vars $ do
+                            let valbinds@(ValBindsOut _ lsigs) = hs_valds group
+                            (m, vars) <- inferValBinds valbinds
+                            withLSigs lsigs $ withPolyVars m vars $ do
                               mapM_ checkLInstance (hs_instds group)
                               askCtxt
 
@@ -117,8 +118,8 @@ inferExpr (HsVar x) =
   do decl <- askUserDecl x
      case decl of
        Just lσ -> 
-         do σ'@(PolyTy ctx' τ') <- instantiatePolyTy (unLoc lσ)
-            noVars ⊢ τ' -- TODO: preserve ctx
+         do σ' <- instantiatePolyTy (unLoc lσ)
+            return $ justType σ'
        Nothing   -> 
          do pv <- askPolyVar x
             case pv of
@@ -130,11 +131,11 @@ inferExpr (HsVar x) =
                    x `typedAs` (PolyTy [] α)
               Just (m, τ) -> 
                 do (m', τ') <- instantiateTyping (m, τ)
-                   m' ⊢ τ'                             
+                   m' ⊢ τ'                                                
 inferExpr (HsLet binds lexpr) = 
   do (mBinds, vars) <- inferLocalBinds binds
      ((m, τ), mBinds') <- withPolyVars mBinds vars $ inferLExpr lexpr
-     (m', τ') <- unify [m, mBinds] [τ]
+     (m', τ') <- unify [m, mBinds'] [τ]
      let isOutsideVisible var _ = not(var `Set.member` vars)
          m'' = filterMonoVars isOutsideVisible m'
      m'' ⊢ τ'
@@ -160,8 +161,8 @@ withLSigs lsigs f =
   do decls <- catMaybes <$> mapM fromSig lsigs
      withUserDecls decls $ f
   where fromSig (L srcloc (TypeSig (L _ name) (L _ ty))) = 
-          do τ <- fromHsType ty
-             return $ Just $ (name, L srcloc τ)
+          do σ <- fromHsType ty
+             return $ Just $ (name, L srcloc σ)
         fromSig _ = return Nothing
     
 inferValBinds :: HsValBinds Name -> Typing (MonoEnv, VarSet)
@@ -174,15 +175,20 @@ inferBindGroups (b:bs) =
      (mNext, m') <- withPolyVars m vars $ inferBindGroups bs
      (m'', _) <- unify [mNext, m, m'] []
      return m''
+     
+checkMonoAmbiguity :: MonoEnv -> Ty -> Typing ()
+checkMonoAmbiguity m τ = 
+  do forM_ (getMonoPreds m) $ \(cls, α) ->
+       unless (α `Set.member` tvs) $ 
+         trace (unwords [showName cls, showName α, show τ, show m]) $ return () -- addError $ AmbiguousPredicate (cls, α)       
+  where
+    tvs = tvsOf τ `Set.union` (mconcat $ map (tvsOf . snd) $ getMonoVars m)
 
-fromJust' (Nothing) = error "foo"
-fromJust' (Just x) = x
-
-checkCtxAmbiguity σ@(PolyTy ctx τ) = 
-  do forM_ ctx $ \(cls, α) -> 
-       unless (α `Set.member` tvs) $ raiseError $ AmbiguousPredicate σ (cls, α)
-  where 
-    tvs = tvsOf τ
+-- checkCtxAmbiguity σ@(PolyTy ctx τ) = 
+--   do forM_ ctx $ \(cls, α) -> 
+--        unless (α `Set.member` tvs) $ raiseError $ AmbiguousPredicate σ (cls, α)
+--   where 
+--     tvs = tvsOf τ
                                                                            
 -- checkDecl σDecl@(PolyTy ctxDecl τDecl) σ@(PolyTy ctx τ) = 
 --   do fit <- runErrorT $ fitDeclTy τDecl τ
@@ -201,22 +207,25 @@ withPolyVars m xs f =
          
 toPolyCtxt :: MonoEnv -> VarSet -> Typing (Ctxt, MonoEnv)
 toPolyCtxt m xs = 
-  do let varmap = map (\ x -> (x, fromJust' $ getMonoVar m x)) $ Set.toList xs
-         m' = filterMonoVars (\ x _ -> x `Set.notMember` xs) m
+  do let m' = filterMonoVars (\ x _ -> x `Set.notMember` xs) m
+         tvsOuter = mconcat $ map (tvsOf . snd) $ getMonoVars m'
+         m'' = filterMonoPreds (\ (cls, α) -> α `Set.member` tvsOuter) m'
      -- TODO: Location
-     polyvars <- catMaybes <$> mapM (toPoly m) varmap
+     polyvars <- catMaybes <$> (mapM (toPoly m) $ Set.toList xs)
      ctxt <- addReducedPolyVars polyvars
-     return (ctxt, m')
-  where toPoly m (x, τ) = 
-          do lookup <- askUserDecl x
+     return (ctxt, m'')
+  where toPoly :: MonoEnv -> VarName -> Typing (Maybe (VarName, (MonoEnv, Ty)))
+        toPoly m x = 
+          do let τ = fromJust $ getMonoVar m x
+             lookup <- askUserDecl x
              case lookup of
                Nothing -> 
-                 do -- checkCtxAmbiguity σ
+                 do checkMonoAmbiguity m τ
                     return $ Just (x, (m, τ))
                Just (L loc σDecl) -> 
                  doLoc loc $ 
-                   do -- checkDecl σDecl σ
-                      -- checkCtxAmbiguity σDecl
+                   do -- checkDecl σDecl σ -- TODO
+                      -- checkCtxAmbiguity σDecl -- TODO
                       return Nothing
 
         addReducedPolyVars :: [(VarName, (MonoEnv, Ty))] -> Typing Ctxt
@@ -225,10 +234,14 @@ toPolyCtxt m xs =
              let polyvars' = map reduce polyvars
                  ctxt' = addPolyVars ctxt polyvars'
              return ctxt'                                     
-          where reduce (x, (m, τ)) = (x, (filterMonoVars hasOutsideVars m, τ))
-                  where hasOutsideVars y τ' | y `Set.member` xs = False
-                                            | otherwise = not $ Set.null $ tvs `Set.intersection` tvsOf τ'
-                        tvs = tvsOf τ
+          where reduce (x, (m, τ)) = (x, (m'', τ))
+                  where tvs = tvsOf τ
+                        hasOutsideVars y τ' | y `Set.member` xs = False
+                                            | otherwise = not $ Set.null $ tvs `Set.intersection` tvsOf τ'           
+                        m' = filterMonoVars hasOutsideVars m                        
+                        tvs' = tvs `Set.union` (mconcat $ map (tvsOf . snd) $ getMonoVars m')
+                        isOutsidePred (cls, α) = α `Set.member` tvs'
+                        m'' = filterMonoPreds isOutsidePred m'
 
 inferBinds :: LHsBinds Name -> Typing MonoEnv
 inferBinds lbindbag = do let lbinds = bagToList lbindbag
@@ -323,6 +336,7 @@ m ⊢ τ = do let m' = setMonoTy m τ
            let m'' = case src of
                  Nothing -> m'
                  Just src -> setMonoSrc m' src
+           trace (unwords ["    ", maybe "" showSDoc src, show m'', "|-", show τ]) $ return ()
            return (m'', τ)
                                              
 typedAs :: VarName -> PolyTy -> Typing (MonoEnv, Ty)

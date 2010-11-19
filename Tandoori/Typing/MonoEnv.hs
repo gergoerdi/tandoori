@@ -1,4 +1,4 @@
-module Tandoori.Typing.MonoEnv (MonoEnv, noVars, setMonoSrc, getMonoSrc, getMonoTy, setMonoTy, mapMonoM, mapMonoM', getMonoVars, getMonoVar, addMonoVar, filterMonoVars, combineMonos) where
+module Tandoori.Typing.MonoEnv (MonoEnv, noVars, justType, setMonoSrc, getMonoSrc, getMonoTy, setMonoTy, mapMonoM, mapMonoM', getMonoVars, getMonoPreds, getMonoVar, addMonoVar, filterMonoVars, filterMonoPreds, combineMonos) where
 
 import Prelude hiding (mapM)
 import Tandoori
@@ -50,6 +50,9 @@ getMonoVar m name = Map.lookup name (monovars m)
 getMonoVars :: MonoEnv -> [(VarName, Ty)]
 getMonoVars m = Map.toList (monovars m)
 
+getMonoPreds :: MonoEnv -> PolyCtx
+getMonoPreds m = Set.toList $ preds m
+
 combineMonos :: [MonoEnv] -> MonoEnv
 combineMonos ms = MonoEnv{source = Nothing,
                           ty = Nothing,
@@ -59,13 +62,16 @@ combineMonos ms = MonoEnv{source = Nothing,
 filterMonoVars :: (VarName -> Ty -> Bool) -> MonoEnv -> MonoEnv
 filterMonoVars p m = m{monovars = Map.filterWithKey p (monovars m)}
 
+filterMonoPreds :: (PolyPred -> Bool) -> MonoEnv -> MonoEnv
+filterMonoPreds f m = m{preds = Set.filter f (preds m)}
+
 mapMonoM :: Monad m => (Tv -> m Tv) -> MonoEnv -> m MonoEnv
 mapMonoM f m = do monovars' <- mapM (mapTy f) (monovars m)
                   τ' <- case ty m of
                     Nothing -> return Nothing
                     Just τ -> liftM Just $ mapTy f τ
-                  πs' <- liftM Set.fromList $ mapM f' $ Set.toList $ preds m
-                  return m{ty = τ', monovars = monovars'}
+                  preds' <- liftM Set.fromList $ mapM f' $ Set.toList $ preds m
+                  return m{ty = τ', monovars = monovars', preds = preds'}
   where f' (cls, τ) = do τ' <- f τ
                          return (cls, τ')
 

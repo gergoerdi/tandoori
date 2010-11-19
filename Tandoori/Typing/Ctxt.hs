@@ -36,4 +36,4 @@ getUserDecl Ctxt{userDecls} varname = Map.lookup varname userDecls
 
 addUserDecls :: Ctxt -> [(VarName, Located PolyTy)] -> Ctxt
 addUserDecls ctxt@Ctxt{userDecls} binds = ctxt{userDecls = foldl addDecl userDecls binds}
-    where addDecl decls (name, lτ) = Map.insert name lτ decls
+    where addDecl decls (name, lσ) = Map.insert name lσ decls

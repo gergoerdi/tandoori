@@ -28,7 +28,7 @@ data ErrorContent = UndefinedCon ConName
                   | MissingBaseInstances OverPred PolyCtx
                   | InvalidInstance
                   | InvalidCon PolyTy
-                  | AmbiguousPredicate PolyTy PolyPred
+                  | AmbiguousPredicate PolyPred
                   | UnfulfilledPredicate OverPred
                   | OtherError String
 

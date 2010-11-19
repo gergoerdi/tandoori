@@ -99,10 +99,8 @@ instance Outputable ErrorContent where
                                               return (σDecl', σ')
     ppr (InvalidCon σ)                   = text "Invalid constructor signature" <+> text (show σ)
     ppr (ClassCycle clss)                = text "Cycle in superclass hierarchy" <> colon <+> sep (punctuate comma $ map (quotes . text . showName) clss)
-    ppr (AmbiguousPredicate σ (cls, α))  = text "Ambiguous predicate" <+> text (showPred (cls, τ')) <+> text "for type" <+> text (show σ')
-        where (σ', τ') = runPretty $ do σ' <- prettyPolyTyM σ
-                                        τ' <- prettyTyM (TyVar α)
-                                        return (σ', τ')
+    ppr (AmbiguousPredicate (cls, α))  = text "Ambiguous predicate" <+> text (showPred (cls, τ'))
+        where τ' = prettyTy (TyVar α)
     ppr (UnfulfilledPredicate (cls, τ))  = text "Unfulfilled predicate" <+> text (showPred (cls, τ'))
         where τ' = prettyTy τ
     ppr (MissingBaseInstances (cls, τ) πs) = text "Missing base instances of" <+> text (showPred (cls, τ)) <> colon <+> sep (punctuate comma $ map (text . showPred) $ fromPolyCtx πs)
@@ -120,8 +118,9 @@ prettyTyEqM (t :=: u) = do t' <- prettyTyM t
 prettyMonoM = mapMonoM prettyTvM
 
 instance Show MonoEnv where
-  show m = "{" ++ intercalate ", " typing ++ "}"
-    where typing = map (\ (v, σ) -> showName v ++ "::" ++ show σ) $ getMonoVars m
+  show m = "{" ++ intercalate ", " (typing ++ preds) ++ "}"
+    where typing = map (\ (x, τ) -> showName x ++ "::" ++ show τ) $ getMonoVars m
+          preds = map (\ (cls, α) -> unwords [showName cls, showName α]) $ getMonoPreds m
 
 printCtxt :: Ctxt -> IO ()
 printCtxt c = Box.printBox $ boxName Box.<+> boxType
@@ -131,8 +130,8 @@ printCtxt c = Box.printBox $ boxName Box.<+> boxType
               τ' <- prettyTyM τ
               return $ unwords [show m', "⊢", show τ']
           -- showTyping m σ = showPolyTy σ
-          pairs = (map (\ (name, (m, τ)) -> (showName name,  showTyping m τ)) $ Map.toList $ polyVars c) ++
-                  (map (\ (name, (L _ σ)) -> (showName name, show σ)) $ Map.toList $ userDecls c)
+          pairs = (map (\ (name, (L _ σ)) -> (showName name, show σ)) $ Map.toList $ userDecls c) ++
+                  (map (\ (name, (m, τ)) -> (showName name,  showTyping m τ)) $ Map.toList $ polyVars c)     
           boxName = Box.vcat Box.left $ map (Box.text . fst) pairs
           boxType = Box.vcat Box.left $ map (\ (name, typing) -> Box.text "::" Box.<+> Box.text typing) pairs
 
