@@ -1,4 +1,4 @@
-module Tandoori.Typing.MonoEnv (MonoEnv, noVars, setMonoSrc, getMonoSrc, getMonoTy, setMonoTy, mapMonoM, getMonoVars, getMonoVar, addMonoVar, filterMonoVars, combineMonos) where
+module Tandoori.Typing.MonoEnv (MonoEnv, noVars, setMonoSrc, getMonoSrc, getMonoTy, setMonoTy, mapMonoM, mapMonoM', getMonoVars, getMonoVar, addMonoVar, filterMonoVars, combineMonos) where
 
 import Prelude hiding (mapM)
 import Tandoori
@@ -17,7 +17,7 @@ data MonoEnv = MonoEnv{
   source :: Maybe SDoc,
   ty :: Maybe Ty,
   monovars :: Map VarName Ty, 
-  preds :: Set OverPred
+  preds :: Set PolyPred
   }
 
 setMonoSrc m src = m{ source = Just src }
@@ -30,7 +30,7 @@ empty :: PolyTy -> MonoEnv
 empty σ@(PolyTy ctx τ) = MonoEnv{ source = Nothing,
                                   ty = Just τ,
                                   monovars = mempty, 
-                                  preds = Set.fromList $ map (fmap TyVar) ctx}
+                                  preds = Set.fromList ctx}
 
 noVars :: MonoEnv
 noVars = MonoEnv{ source = Nothing, ty = Nothing, monovars = mempty, preds = mempty}
@@ -42,7 +42,7 @@ typedAs :: VarName -> PolyTy -> (MonoEnv, Ty)
 x `typedAs` σ@(PolyTy ctx τ) = (addMonoVar (empty σ) (x, σ), τ)
                 
 addMonoVar :: MonoEnv -> (VarName, PolyTy) -> MonoEnv
-addMonoVar m (x, σ@(PolyTy ctx τ)) = m{monovars = Map.insert x τ (monovars m), preds = Set.fromList (map (fmap TyVar) ctx) `Set.union` (preds m) }
+addMonoVar m (x, σ@(PolyTy ctx τ)) = m{monovars = Map.insert x τ (monovars m), preds = Set.fromList ctx `Set.union` (preds m) }
 
 getMonoVar :: MonoEnv -> VarName -> Maybe Ty
 getMonoVar m name = Map.lookup name (monovars m)
@@ -59,9 +59,20 @@ combineMonos ms = MonoEnv{source = Nothing,
 filterMonoVars :: (VarName -> Ty -> Bool) -> MonoEnv -> MonoEnv
 filterMonoVars p m = m{monovars = Map.filterWithKey p (monovars m)}
 
-mapMonoM :: Monad m => (Ty -> m Ty) -> MonoEnv -> m MonoEnv
-mapMonoM f m = do monovars' <- mapM f (monovars m)
+mapMonoM :: Monad m => (Tv -> m Tv) -> MonoEnv -> m MonoEnv
+mapMonoM f m = do monovars' <- mapM (mapTy f) (monovars m)
                   τ' <- case ty m of
                     Nothing -> return Nothing
-                    Just τ -> liftM Just $ f τ
+                    Just τ -> liftM Just $ mapTy f τ
+                  πs' <- liftM Set.fromList $ mapM f' $ Set.toList $ preds m
                   return m{ty = τ', monovars = monovars'}
+  where f' (cls, τ) = do τ' <- f τ
+                         return (cls, τ')
+
+mapMonoM' :: Monad m => (Ty -> m Ty) -> (Set PolyPred -> m (Set PolyPred)) -> (MonoEnv -> m MonoEnv)
+mapMonoM' fτ fπ m = do monovars' <- mapM fτ (monovars m)
+                       τ' <- case ty m of
+                         Nothing -> return Nothing
+                         Just τ -> liftM Just $ fτ τ
+                       preds' <- fπ (preds m)
+                       return m{ty = τ', monovars = monovars', preds = preds'}

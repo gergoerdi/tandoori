@@ -117,7 +117,7 @@ prettyTyEqM (t :=: u) = do t' <- prettyTyM t
                            u' <- prettyTyM u
                            return $ t' :=: u'
                       
-prettyMonoM = mapMonoM prettyTyM
+prettyMonoM = mapMonoM prettyTvM
 
 instance Show MonoEnv where
   show m = "{" ++ intercalate ", " typing ++ "}"

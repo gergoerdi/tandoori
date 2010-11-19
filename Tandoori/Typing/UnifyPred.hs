@@ -1,4 +1,5 @@
-module Tandoori.Typing.UnifyPred (subst, resolvePred, satisfies) where
+-- module Tandoori.Typing.UnifyPred (subst, resolvePred, satisfies) where
+module Tandoori.Typing.UnifyPred where
 
 import Tandoori.Typing
 import Tandoori.Typing.Monad
@@ -6,20 +7,28 @@ import Tandoori.Typing.Error
 import Tandoori.Typing.Unify
 import Tandoori.Typing.Substitute
     
+import MonadUtils (anyM)
 import Control.Monad.Error
 import Control.Applicative
 import Data.Maybe
+import Data.Monoid
+import qualified Data.Set as Set
+import Data.Set (Set)
 
 substPred :: Subst -> PolyPred -> Typing [PolyPred]
 substPred θ (cls, α) = resolvePred (cls, substTy θ (TyVar α))
 
+substPreds :: Subst -> Set PolyPred -> Typing (Set PolyPred)
+substPreds θ ctx = 
+  do πs <- concat <$> (mapM (substPred θ) $ Set.toList ctx)
+     Set.fromList <$> simplifyCtx πs
+
 substCtx :: Subst -> PolyCtx -> Typing PolyCtx
 substCtx θ ctx = concat <$> mapM (substPred θ) ctx
           
-subst :: Subst -> PolyTy -> Typing PolyTy
-subst θ (PolyTy ctx τ) = do let τ' = substTy θ τ
-                            ctx' <- simplifyCtx =<< substCtx θ ctx     
-                            return $ PolyTy ctx' τ'
+-- subst θ (PolyTy ctx τ) = do let τ' = substTy θ τ
+--                             ctx' <- simplifyCtx =<< substCtx θ ctx     
+--                             return $ PolyTy ctx' τ'
                                    
 resolvePred :: OverPred -> Typing PolyCtx
 resolvePred (cls, τ) = case τ of
@@ -33,7 +42,7 @@ resolvePred (cls, τ) = case τ of
 
 simplifyCtx :: PolyCtx -> Typing PolyCtx
 simplifyCtx [] = return []
-simplifyCtx (π:πs) = do isRedundant <- or <$> mapM (π `isSuperOf`) πs
+simplifyCtx (π:πs) = do isRedundant <- anyM (π `isSuperOf`) πs
                         πs' <- filterM (`isNotSuperOf` π) πs
                         if isRedundant then simplifyCtx πs
                            else (π:) <$> simplifyCtx πs'

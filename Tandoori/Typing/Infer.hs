@@ -84,7 +84,7 @@ inferExpr (HsOverLit overlit) =
   do PolyTy ctx τ <- typeOfOverLit overlit -- TODO: preserve ctx
      noVars ⊢ τ
 inferExpr (HsVar name) | isDataConName name = 
-  do τ <- (instantiate =<< askCon name) `orRecover` mkTyVar
+  do τ <- (instantiate =<< askCon name) `orRecover` mkTyVar -- TODO: constructors with predicates
      noVars ⊢ τ
 inferExpr (ExplicitList _ lexprs) = 
   do (ms, τs) <- unzip <$> mapM inferLExpr lexprs
@@ -133,7 +133,6 @@ inferExpr (HsVar x) =
                    m' ⊢ τ'                             
 inferExpr (HsLet binds lexpr) = 
   do (mBinds, vars) <- inferLocalBinds binds
-     trace (unwords ["Let", unwords $ map showName $ Set.toList vars, show mBinds]) $ return ()
      ((m, τ), mBinds') <- withPolyVars mBinds vars $ inferLExpr lexpr
      (m', τ') <- unify [m, mBinds] [τ]
      let isOutsideVisible var _ = not(var `Set.member` vars)
@@ -174,7 +173,6 @@ inferBindGroups (b:bs) =
   do (m, vars) <- listenVars $ inferBinds b
      (mNext, m') <- withPolyVars m vars $ inferBindGroups bs
      (m'', _) <- unify [mNext, m, m'] []
-     trace (unwords ["inferBindGroups", show m'']) $ return ()
      return m''
 
 fromJust' (Nothing) = error "foo"
@@ -186,14 +184,14 @@ checkCtxAmbiguity σ@(PolyTy ctx τ) =
   where 
     tvs = tvsOf τ
                                                                            
-checkDecl σDecl@(PolyTy ctxDecl τDecl) σ@(PolyTy ctx τ) = 
-  do fit <- runErrorT $ fitDeclTy τDecl τ
-     case fit of
-       Left err -> raiseError $ CantFitDecl σDecl σ
-       Right θ -> 
-         do σ'@(PolyTy ctx' _) <- subst θ σ
-            ctxOk <- ctxDecl `satisfies` ctx'
-            unless ctxOk $ raiseError $ CantFitDecl σDecl σ'
+-- checkDecl σDecl@(PolyTy ctxDecl τDecl) σ@(PolyTy ctx τ) = 
+--   do fit <- runErrorT $ fitDeclTy τDecl τ
+--      case fit of
+--        Left err -> raiseError $ CantFitDecl σDecl σ
+--        Right θ -> 
+--          do σ'@(PolyTy ctx' _) <- subst θ σ
+--             ctxOk <- ctxDecl `satisfies` ctx'
+--             unless ctxOk $ raiseError $ CantFitDecl σDecl σ'
           
 withPolyVars :: MonoEnv -> VarSet -> Typing a -> Typing (a, MonoEnv)
 withPolyVars m xs f =
@@ -206,7 +204,6 @@ toPolyCtxt m xs =
   do let varmap = map (\ x -> (x, fromJust' $ getMonoVar m x)) $ Set.toList xs
          m' = filterMonoVars (\ x _ -> x `Set.notMember` xs) m
      -- TODO: Location
-     trace (unwords ["toPolyCtxt:", show m, show m']) $ varmap `seq` return ()
      polyvars <- catMaybes <$> mapM (toPoly m) varmap
      ctxt <- addReducedPolyVars polyvars
      return (ctxt, m')
@@ -356,4 +353,4 @@ unify ms τs =
                   do tv <- mkTyVar
                      return (var, tv)
         vars = concatMap getMonoVars ms
-        substMono θ m = mapMonoM (return . substTy θ) m
+        substMono θ m = mapMonoM' (return . substTy θ) (substPreds θ) m

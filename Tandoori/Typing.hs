@@ -5,6 +5,7 @@ import qualified Tandoori.GHC.Internals as GHC
 import qualified Data.Set as Set
 import Data.List (nub)
 import Data.Monoid
+import Control.Monad (liftM, liftM2)
     
 type Tv = GHC.Name    
 type Con = GHC.Name
@@ -17,6 +18,12 @@ data Ty = TyVar Tv
         | TyTuple Int
         -- TODO: records
         deriving (Eq, Ord)
+
+mapTy :: Monad m => (Tv -> m Tv) -> (Ty -> m Ty)
+mapTy f (TyVar α) = liftM TyVar $ f α
+mapTy f (TyApp τ τ') = liftM2 TyApp (mapTy f τ) (mapTy f τ')
+mapTy f (TyFun τ τ') = liftM2 TyFun (mapTy f τ) (mapTy f τ')
+mapTy f τ = return τ
 
 data TyCon = TyConData Con
            | TyConFun

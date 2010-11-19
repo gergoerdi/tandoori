@@ -23,11 +23,12 @@ ensureTv α = do lookup <- lookupTv α
                                 return α'
 
 instantiateM :: Ty -> Instantiate Ty
-instantiateM τ@(TyCon _)     = return τ
-instantiateM τ@(TyVar α)     = TyVar <$> ensureTv α
-instantiateM τ@(TyFun τ1 τ2) = liftM2 TyFun (instantiateM τ1) (instantiateM τ2)
-instantiateM τ@(TyApp τ1 τ2) = liftM2 TyApp (instantiateM τ1) (instantiateM τ2)
-instantiateM τ@(TyTuple _)   = return τ
+instantiateM = mapTy ensureTv
+-- instantiateM τ@(TyCon _)     = return τ
+-- instantiateM τ@(TyVar α)     = TyVar <$> ensureTv α
+-- instantiateM τ@(TyFun τ1 τ2) = liftM2 TyFun (instantiateM τ1) (instantiateM τ2)
+-- instantiateM τ@(TyApp τ1 τ2) = liftM2 TyApp (instantiateM τ1) (instantiateM τ2)
+-- instantiateM τ@(TyTuple _)   = return τ
                                                                       
 instantiatePredM :: OverPred -> Instantiate OverPred
 instantiatePredM (cls, τ) = do τ' <- instantiateM τ
@@ -50,7 +51,7 @@ instantiatePolyTyM (PolyTy ctx τ) = liftM2 PolyTy (mapM instantiatePolyPredM ct
 
 instantiateTypingM :: (MonoEnv, Ty) -> Instantiate (MonoEnv, Ty)
 instantiateTypingM (m, τ) = do τ' <- instantiateM τ
-                               m' <- mapMonoM instantiateM m
+                               m' <- mapMonoM ensureTv m
                                return (m', τ')
 
 instantiateTyping :: (MonoEnv, Ty) -> Typing (MonoEnv, Ty)
