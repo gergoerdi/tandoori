@@ -9,6 +9,7 @@ import Tandoori.Typing.MonoEnv
 import Tandoori.Typing.Ctxt
 import Tandoori.Typing.Unify
 import Tandoori.Typing.UnifyPred
+import Tandoori.Typing.Substitute
 import Tandoori.Typing.Instantiate
 import Tandoori.Typing.DataType
 import Tandoori.Typing.ClassDecl
@@ -27,6 +28,9 @@ import Tandoori.GHC.Internals
 
 import Bag (bagToList)
     
+import Debug.Trace
+import Tandoori.Typing.Show
+
 infer decls group = runTyping $ do
                       cons <- concat <$> mapM constructorsFromDecl decls
                       withCons cons $ do
@@ -71,50 +75,50 @@ typeOfOverLit (OverLit { ol_val = val }) =
      return $ PolyTy [(cls, α)] (TyVar α)
      -- return $ PolyTy [] tyInt -- Comment this out to have non-polymorph integer literals
                                                              
-inferLExpr :: Located TanExpr -> Typing (MonoEnv, PolyTy)
+inferLExpr :: Located TanExpr -> Typing (MonoEnv, Ty)
 inferLExpr lexpr = withLSrc lexpr $ inferExpr $ unLoc lexpr
 
-inferExpr :: HsExpr Name -> Typing (MonoEnv, PolyTy)
-inferExpr (HsLit lit) = noVars ⊢ (PolyTy [] $ typeOfLit lit)
+inferExpr :: HsExpr Name -> Typing (MonoEnv, Ty)
+inferExpr (HsLit lit) = noVars ⊢ typeOfLit lit
 inferExpr (HsOverLit overlit) = 
-  do σ <- typeOfOverLit overlit
-     noVars ⊢ σ
+  do PolyTy ctx τ <- typeOfOverLit overlit -- TODO: preserve ctx
+     noVars ⊢ τ
 inferExpr (HsVar name) | isDataConName name = 
   do τ <- (instantiate =<< askCon name) `orRecover` mkTyVar
-     noVars ⊢ PolyTy [] τ
+     noVars ⊢ τ
 inferExpr (ExplicitList _ lexprs) = 
-  do (ms, σs) <- unzip <$> mapM inferLExpr lexprs
-     (m, σ) <- unify ms σs
-     m ⊢ ptyList σ
+  do (ms, τs) <- unzip <$> mapM inferLExpr lexprs
+     (m, τ) <- unify ms τs
+     m ⊢ tyList τ
 inferExpr (ExplicitTuple tupargs _ ) = 
-  do (ms, σs) <- unzip <$> mapM inferTupArg tupargs
-     (m, σ) <- unify ms [ptyTuple σs]
-     m ⊢ σ
+  do (ms, τs) <- unzip <$> mapM inferTupArg tupargs
+     (m, τ) <- unify ms [tyTuple τs]
+     m ⊢ τ
   where 
     inferTupArg (Present lexpr) = inferLExpr lexpr                          
 inferExpr (HsApp ltyFun ltyParam) = 
-  do (m1, σ1) <- inferLExpr ltyFun
-     (m2, σ2) <- inferLExpr ltyParam
+  do (m1, τ1) <- inferLExpr ltyFun
+     (m2, τ2) <- inferLExpr ltyParam
      α <- mkTyVar
-     (m, σ) <- unify [m1, m2] [σ1, ptyCurryFun [σ2, PolyTy [] α]]
-     case σ of
-       (PolyTy ctx (TyFun τ3 τ4)) -> m ⊢ PolyTy ctx τ4
+     (m, τ) <- unify [m1, m2] [τ1, tyCurryFun [τ2, α]]
+     case τ of
+       (TyFun τ3 τ4) -> m ⊢ τ4
        _ -> 
          do -- TODO: Error reporting
             β <- mkTyVar
-            m ⊢ PolyTy [] β                                                                 
+            m ⊢ β                                                                 
 inferExpr (HsLam (MatchGroup lmatches _)) = 
-  do (ms, σs) <- unzip <$> mapM inferLMatch lmatches
-     (m, σ) <- unify ms σs
-     m ⊢ σ
+  do (ms, τs) <- unzip <$> mapM inferLMatch lmatches
+     (m, τ) <- unify ms τs
+     m ⊢ τ
 
 -- TODO: move this to askPolyVar, kill askUserDecl
 inferExpr (HsVar x) = 
   do decl <- askUserDecl x
      case decl of
-       Just lσ  -> 
-         do σ' <- instantiatePolyTy (unLoc lσ)
-            noVars ⊢ σ'
+       Just lσ -> 
+         do σ'@(PolyTy ctx' τ') <- instantiatePolyTy (unLoc lσ)
+            noVars ⊢ τ' -- TODO: preserve ctx
        Nothing   -> 
          do pv <- askPolyVar x
             case pv of
@@ -124,28 +128,25 @@ inferExpr (HsVar x) =
                      --addError $ UndefinedVar x
                    α <- mkTyVar
                    x `typedAs` (PolyTy [] α)
-              Just (m, σ) -> 
-                do (m', σ') <- instantiateTyping (m, σ)
-                   m' ⊢ σ'
-                where tvsOfDef y = case getMonoVar m y of
-                        Nothing -> Set.empty
-                        Just (PolyTy _ τ) -> tvsOf τ
-                             
+              Just (m, τ) -> 
+                do (m', τ') <- instantiateTyping (m, τ)
+                   m' ⊢ τ'                             
 inferExpr (HsLet binds lexpr) = 
   do (mBinds, vars) <- inferLocalBinds binds
-     (m, σ) <- withPolyVars mBinds vars $ inferLExpr lexpr
-     (m', σ') <- unify [m, mBinds] [σ]
+     trace (unwords ["Let", unwords $ map showName $ Set.toList vars, show mBinds]) $ return ()
+     ((m, τ), mBinds') <- withPolyVars mBinds vars $ inferLExpr lexpr
+     (m', τ') <- unify [m, mBinds] [τ]
      let isOutsideVisible var _ = not(var `Set.member` vars)
          m'' = filterMonoVars isOutsideVisible m'
-     m'' ⊢ σ'
+     m'' ⊢ τ'
 inferExpr (OpApp left op fixity right) = inferExpr $ HsApp (noLoc $ HsApp op left) right
 inferExpr (HsIf cond thn els) = 
-  do (mCond, σCond) <- inferLExpr cond
-     (m1, σ1) <- inferLExpr thn
-     (m2, σ2) <- inferLExpr els
-     (mCond', _) <- unify [mCond] [σCond, PolyTy [] tyBool]
-     (m, σ) <- unify [mCond', m1, m2] [σ1, σ2]
-     m ⊢ σ
+  do (mCond, τCond) <- inferLExpr cond
+     (m1, τ1) <- inferLExpr thn
+     (m2, τ2) <- inferLExpr els
+     (mCond', _) <- unify [mCond] [τCond, tyBool]
+     (m, τ) <- unify [mCond', m1, m2] [τ1, τ2]
+     m ⊢ τ
      
 -- TODO:
 inferExpr (NegApp expr negfun) = error "infer': TODO: NegApp"
@@ -171,8 +172,9 @@ inferBindGroups :: [LHsBinds Name] -> Typing MonoEnv
 inferBindGroups [] = return noVars
 inferBindGroups (b:bs) = 
   do (m, vars) <- listenVars $ inferBinds b
-     m' <- withPolyVars m vars $ inferBindGroups bs
-     (m'', _) <- unify [m, m'] []
+     (mNext, m') <- withPolyVars m vars $ inferBindGroups bs
+     (m'', _) <- unify [mNext, m, m'] []
+     trace (unwords ["inferBindGroups", show m'']) $ return ()
      return m''
 
 fromJust' (Nothing) = error "foo"
@@ -193,38 +195,42 @@ checkDecl σDecl@(PolyTy ctxDecl τDecl) σ@(PolyTy ctx τ) =
             ctxOk <- ctxDecl `satisfies` ctx'
             unless ctxOk $ raiseError $ CantFitDecl σDecl σ'
           
-withPolyVars :: MonoEnv -> VarSet -> Typing a -> Typing a         
+withPolyVars :: MonoEnv -> VarSet -> Typing a -> Typing (a, MonoEnv)
 withPolyVars m xs f =
-  do ctxt <- toPolyCtxt m xs
-     withCtxt ctxt f
+  do (ctxt, m) <- toPolyCtxt m xs
+     res <- withCtxt ctxt f
+     return (res, m)
          
-toPolyCtxt :: MonoEnv -> VarSet -> Typing Ctxt
+toPolyCtxt :: MonoEnv -> VarSet -> Typing (Ctxt, MonoEnv)
 toPolyCtxt m xs = 
   do let varmap = map (\ x -> (x, fromJust' $ getMonoVar m x)) $ Set.toList xs
+         m' = filterMonoVars (\ x _ -> x `Set.notMember` xs) m
      -- TODO: Location
+     trace (unwords ["toPolyCtxt:", show m, show m']) $ varmap `seq` return ()
      polyvars <- catMaybes <$> mapM (toPoly m) varmap
-     addReducedPolyVars polyvars
-  where toPoly m (x, σ) = 
+     ctxt <- addReducedPolyVars polyvars
+     return (ctxt, m')
+  where toPoly m (x, τ) = 
           do lookup <- askUserDecl x
              case lookup of
                Nothing -> 
-                 do checkCtxAmbiguity σ
-                    return $ Just (x, (m, σ))
+                 do -- checkCtxAmbiguity σ
+                    return $ Just (x, (m, τ))
                Just (L loc σDecl) -> 
                  doLoc loc $ 
-                   do checkDecl σDecl σ
-                      checkCtxAmbiguity σDecl
+                   do -- checkDecl σDecl σ
+                      -- checkCtxAmbiguity σDecl
                       return Nothing
 
-        addReducedPolyVars :: [(VarName, (MonoEnv, PolyTy))] -> Typing Ctxt
+        addReducedPolyVars :: [(VarName, (MonoEnv, Ty))] -> Typing Ctxt
         addReducedPolyVars polyvars = 
           do ctxt <- askCtxt
              let polyvars' = map reduce polyvars
                  ctxt' = addPolyVars ctxt polyvars'
              return ctxt'                                     
-          where reduce (x, (m, σ@(PolyTy _ τ))) = (x, (filterMonoVars hasOutsideVars m, σ))
-                  where hasOutsideVars y (PolyTy _ τ') | y `Set.member` xs = False
-                                                       | otherwise = not $ Set.null $ tvs `Set.intersection` tvsOf τ'
+          where reduce (x, (m, τ)) = (x, (filterMonoVars hasOutsideVars m, τ))
+                  where hasOutsideVars y τ' | y `Set.member` xs = False
+                                            | otherwise = not $ Set.null $ tvs `Set.intersection` tvsOf τ'
                         tvs = tvsOf τ
 
 inferBinds :: LHsBinds Name -> Typing MonoEnv
@@ -247,21 +253,21 @@ inferBind FunBind{fun_matches = MatchGroup lmatches _, fun_id = (L _ f)} =
   do tellVar f
      -- TODO: why not introduce new monovars per group?
      -- because each member of a group sends up its own idea of the others (in Δ), and they are unified later in the group level
-     (ms, σs) <- withMonoVars (Set.singleton f) $ stopVars $ 
+     (ms, τs) <- withMonoVars (Set.singleton f) $ stopVars $ 
                   unzip <$> mapM inferLMatch lmatches
-     (m, σ) <- unify ms σs
-     return $ addMonoVar m (f, σ)
+     (m, τ) <- unify ms τs
+     return $ addMonoVar m (f, PolyTy [] τ)
 
-inferLMatch :: (LMatch Name) -> Typing (MonoEnv, PolyTy)
+inferLMatch :: (LMatch Name) -> Typing (MonoEnv, Ty)
 inferLMatch lmatch = doLoc (getLoc lmatch) $ inferMatch $ unLoc lmatch
                                
-inferMatch :: (Match Name) -> Typing (MonoEnv, PolyTy)
+inferMatch :: (Match Name) -> Typing (MonoEnv, Ty)
 inferMatch (Match lpats _ grhss) = 
-  do ((ms, σs), vars) <- stopVars $ listenVars $ (unzip <$> mapM inferLPat lpats)
-     (m, σ) <- withMonoVars vars $ inferGRhss grhss
-     (m', σ') <- unify (m:ms) [ptyCurryFun (σs ++ [σ])]
-     let m'' = filterMonoVars (\ v ty -> not (Set.member v vars)) m'
-     m'' ⊢ σ'
+  do ((ms, τs), vars) <- stopVars $ listenVars $ (unzip <$> mapM inferLPat lpats)
+     (m, τ) <- withMonoVars vars $ inferGRhss grhss
+     (m', τ') <- unify (m:ms) [tyCurryFun (τs ++ [τ])]
+     let m'' = filterMonoVars (\ x ty -> not (Set.member x vars)) m'
+     m'' ⊢ τ'
 
 
 inferGRhs (GRHS _ lexpr) = inferLExpr lexpr
@@ -272,84 +278,82 @@ inferGRhss (GRHSs lgrhss _) =
      m ⊢ σ
 
                                              
-inferLPat :: Located (Pat Name) -> Typing (MonoEnv, PolyTy)
+inferLPat :: Located (Pat Name) -> Typing (MonoEnv, Ty)
 inferLPat lpat = withLSrc lpat $ inferPat $ unLoc lpat
                                      
-inferPat :: Pat Name -> Typing (MonoEnv, PolyTy)
+inferPat :: Pat Name -> Typing (MonoEnv, Ty)
 inferPat (AsPat (L _ name) lpat) = 
   do tellVar name
-     (m, σ) <- inferLPat lpat                                                
-     let m' = addMonoVar m (name, σ)
-     m' ⊢ σ
+     (m, τ) <- inferLPat lpat                                
+     let m' = addMonoVar m (name, PolyTy [] τ)
+     m' ⊢ τ
 inferPat (ParPat lpat) = inferLPat lpat
 inferPat (WildPat _) = 
   do α <- mkTyVar
-     noVars ⊢ PolyTy [] α
+     noVars ⊢ α
 inferPat (VarPat name) = 
   do tellVar name
      α <- mkTyVar
      name `typedAs` (PolyTy [] α)
-inferPat (LitPat lit) = noVars ⊢ (PolyTy [] $ typeOfLit lit)
+inferPat (LitPat lit) = noVars ⊢ typeOfLit lit
 inferPat (ConPatIn (L _ con) details)  = 
-  do τCon <- askCon con -- TODO: errors
-     (ms, σs) <- unzip <$> mapM inferLPat lpats
+  do τCon <- askCon con -- TODO: errors, constructors with predicates
+     (ms, τs) <- unzip <$> mapM inferLPat lpats
      α <- mkTyVar
-     (m, σ) <- unify ms [PolyTy [] τCon, ptyCurryFun (σs ++ [PolyTy [] α])]
-     m ⊢ ptyFunResult σ
+     (m, τ) <- unify ms [τCon, tyCurryFun (τs ++ [α])]
+     m ⊢ tyFunResult τ
   where lpats = 
           case details of
             PrefixCon lpats -> lpats
             InfixCon lp lp' -> [lp, lp']
-        ptyFunResult (PolyTy ctx τ) = PolyTy ctx (tyRightmost τ)
-        tyRightmost (TyFun τ1 τ2) = tyRightmost τ2
-        tyRightmost τ             = τ                                                 
+        tyFunResult (TyFun τ1 τ2) = tyFunResult τ2
+        tyFunResult τ = τ
 inferPat (TuplePat lpats _ _) =              
-  do (ms, σs) <- unzip <$> mapM inferLPat lpats
-     combineMonos ms ⊢ ptyTuple σs
+  do (ms, τs) <- unzip <$> mapM inferLPat lpats
+     combineMonos ms ⊢ tyTuple τs
 inferPat (ListPat lpats _) =                
-  do (ms, σs) <- unzip <$> mapM inferLPat lpats
-     (m, σ) <- unify ms σs
-     m ⊢ ptyList σ
+  do (ms, τs) <- unzip <$> mapM inferLPat lpats
+     (m, τ) <- unify ms τs
+     m ⊢ tyList τ
 inferPat (NPat overlit _ _) =               
-  do σ <- typeOfOverLit overlit
-     noVars ⊢ σ
+  do PolyTy ctx τ <- typeOfOverLit overlit
+     noVars ⊢ τ -- TODO: preserve ctx
                                              
 infix 1 ⊢
-(⊢) :: MonoEnv -> PolyTy -> Typing (MonoEnv, PolyTy)                                             
-m ⊢ σ = do let m' = setMonoTy m σ
+(⊢) :: MonoEnv -> Ty -> Typing (MonoEnv, Ty)
+m ⊢ τ = do let m' = setMonoTy m τ
            src <- askSrc
            let m'' = case src of
                  Nothing -> m'
                  Just src -> setMonoSrc m' src
-           return (m'', σ)
+           return (m'', τ)
                                              
-typedAs :: VarName -> PolyTy -> Typing (MonoEnv, PolyTy)
-v `typedAs` σ = (addMonoVar noVars (v, σ)) ⊢ σ
+typedAs :: VarName -> PolyTy -> Typing (MonoEnv, Ty)
+x `typedAs` σ@(PolyTy ctx τ) = (addMonoVar noVars (x, σ)) ⊢ τ
 
 
-unify :: [MonoEnv] -> [PolyTy] -> Typing (MonoEnv, PolyTy)
-unify ms σs = 
+unify :: [MonoEnv] -> [Ty] -> Typing (MonoEnv, Ty)
+unify ms τs = 
   do eqs <- monoeqs
      α <- mkTyVar
-     let eqs' = map (\ (PolyTy _ τ) -> (Nothing, α :=: τ)) σs
-         σ = PolyTy (concatMap getCtx σs) α
+     let eqs' = map (\ τ -> (Nothing, α :=: τ)) τs
      u <- runErrorT $ mgu $ eqs ++ eqs'
      case u of
        Left err -> raiseError $ UnificationFailed ms err
        Right θ -> 
          do ms' <- mapM (substMono θ) ms
-            σ' <- subst θ σ
-            return (combineMonos ms', σ')
-         `orRecover` (return (combineMonos ms, PolyTy [] α))
+            let τ = substTy θ α
+            return (combineMonos ms', τ)
+         `orRecover` return (combineMonos ms, α)
                         
   where getCtx (PolyTy ctx _) = ctx
         monoeqs = 
           do tyvarmap <- Map.fromList <$> mapM mkVar varnames
-             let mkEq (var, (PolyTy _ τ)) = (Just var, (fromJust $ Map.lookup var tyvarmap) :=: τ)
+             let mkEq (var, τ) = (Just var, (fromJust $ Map.lookup var tyvarmap) :=: τ)
              return $ map mkEq vars
           where varnames = nub $ map fst vars
                 mkVar var = 
                   do tv <- mkTyVar
                      return (var, tv)
         vars = concatMap getMonoVars ms
-        substMono θ m = mapMonoM (subst θ) m
+        substMono θ m = mapMonoM (return . substTy θ) m

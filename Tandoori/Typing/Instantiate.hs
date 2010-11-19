@@ -48,10 +48,10 @@ instantiatePolyTy = runInst . instantiatePolyTyM
 instantiatePolyTyM :: PolyTy -> Instantiate PolyTy
 instantiatePolyTyM (PolyTy ctx τ) = liftM2 PolyTy (mapM instantiatePolyPredM ctx) (instantiateM τ)
 
-instantiateTypingM :: (MonoEnv, PolyTy) -> Instantiate (MonoEnv, PolyTy)
-instantiateTypingM (m, σ) = do σ' <- instantiatePolyTyM σ
-                               m' <- mapMonoM instantiatePolyTyM m
-                               return (m', σ')
+instantiateTypingM :: (MonoEnv, Ty) -> Instantiate (MonoEnv, Ty)
+instantiateTypingM (m, τ) = do τ' <- instantiateM τ
+                               m' <- mapMonoM instantiateM m
+                               return (m', τ')
 
-instantiateTyping :: (MonoEnv, PolyTy) -> Typing (MonoEnv, PolyTy)
+instantiateTyping :: (MonoEnv, Ty) -> Typing (MonoEnv, Ty)
 instantiateTyping = runInst . instantiateTypingM

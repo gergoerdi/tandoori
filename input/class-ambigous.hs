@@ -1,5 +1,10 @@
 undef = undef
 
+data Bool = True | False
+
+class Eq a where
+  (==) :: a -> a -> Bool
+
 forceEq :: Eq a => a -> a
 forceEq x = x
 

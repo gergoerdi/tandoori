@@ -68,7 +68,7 @@ main' [src_filename] = do mod <- parseMod src_filename
                             then mapM_ (\ error -> printErrs $ ppr error $ mkErrStyle neverQualify) errors
                             else return ()
                           case c of
-                            Just ctxt -> printCtxt ctxt
+                            Just (ctxt, m) -> printCtxt ctxt
                             Nothing -> return ()
                           return c
 

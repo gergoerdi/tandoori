@@ -143,7 +143,7 @@ askUserDecl :: VarName -> Typing (Maybe (Located PolyTy))
 askUserDecl varname = do c <- Typing $ asks ctxt
                          return $ getUserDecl c varname
 
-askPolyVar :: VarName -> Typing (Maybe (MonoEnv, PolyTy))
+askPolyVar :: VarName -> Typing (Maybe (MonoEnv, Ty))
 askPolyVar varname = do c <- Typing $ asks $ ctxt
                         return $ getPolyVar c varname
                

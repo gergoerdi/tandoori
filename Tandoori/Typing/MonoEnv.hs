@@ -1,74 +1,67 @@
 module Tandoori.Typing.MonoEnv (MonoEnv, noVars, setMonoSrc, getMonoSrc, getMonoTy, setMonoTy, mapMonoM, getMonoVars, getMonoVar, addMonoVar, filterMonoVars, combineMonos) where
 
+import Prelude hiding (mapM)
 import Tandoori
 import Tandoori.GHC.Internals (SDoc)
 import Tandoori.Typing
 
 import Data.Monoid    
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Map (Map)
 import qualified Data.Map as Map
-    
+import Data.Traversable (mapM)
+import Control.Monad (liftM)
+
 data MonoEnv = MonoEnv{ 
   source :: Maybe SDoc,
-  ty :: Maybe PolyTy,
-  monovars :: Map VarName PolyTy }
+  ty :: Maybe Ty,
+  monovars :: Map VarName Ty, 
+  preds :: Set OverPred
+  }
 
 setMonoSrc m src = m{ source = Just src }
 getMonoSrc = source
 
 getMonoTy = ty
-setMonoTy m σ = m{ty = Just σ}
+setMonoTy m τ = m{ty = Just τ}
 
 empty :: PolyTy -> MonoEnv
-empty σ = MonoEnv{ source = Nothing,
-                   ty = Just σ,
-                   monovars = mempty }
+empty σ@(PolyTy ctx τ) = MonoEnv{ source = Nothing,
+                                  ty = Just τ,
+                                  monovars = mempty, 
+                                  preds = Set.fromList $ map (fmap TyVar) ctx}
 
 noVars :: MonoEnv
-noVars = MonoEnv{ source = Nothing, ty = Nothing, monovars = mempty}
+noVars = MonoEnv{ source = Nothing, ty = Nothing, monovars = mempty, preds = mempty}
 
-justType :: PolyTy -> (MonoEnv, PolyTy)
-justType σ = (empty σ, σ)
+justType :: PolyTy -> (MonoEnv, Ty)
+justType σ@(PolyTy ctx τ) = (empty σ, τ)
 
-typedAs :: VarName -> PolyTy -> (MonoEnv, PolyTy)
-v `typedAs` σ = (addMonoVar (empty σ) (v, σ), σ)
+typedAs :: VarName -> PolyTy -> (MonoEnv, Ty)
+x `typedAs` σ@(PolyTy ctx τ) = (addMonoVar (empty σ) (x, σ), τ)
                 
 addMonoVar :: MonoEnv -> (VarName, PolyTy) -> MonoEnv
-addMonoVar m (v, σ) = m{monovars = Map.insert v σ (monovars m)}
+addMonoVar m (x, σ@(PolyTy ctx τ)) = m{monovars = Map.insert x τ (monovars m), preds = Set.fromList (map (fmap TyVar) ctx) `Set.union` (preds m) }
 
-getMonoVar :: MonoEnv -> VarName -> Maybe PolyTy
+getMonoVar :: MonoEnv -> VarName -> Maybe Ty
 getMonoVar m name = Map.lookup name (monovars m)
 
-getMonoVars :: MonoEnv -> [(VarName, PolyTy)]
+getMonoVars :: MonoEnv -> [(VarName, Ty)]
 getMonoVars m = Map.toList (monovars m)
 
 combineMonos :: [MonoEnv] -> MonoEnv
 combineMonos ms = MonoEnv{source = Nothing,
                           ty = Nothing,
-                          monovars = mconcat $ map monovars ms}
+                          monovars = mconcat $ map monovars ms,
+                          preds = mconcat $ map preds ms}
 
-removeMonoVars :: MonoEnv -> [VarName] -> MonoEnv
-removeMonoVars m names = m{monovars = foldl removeMonoVar (monovars m) names}
-    where removeMonoVar = flip Map.delete
-
-filterMonoVars :: (VarName -> PolyTy -> Bool) -> MonoEnv -> MonoEnv
+filterMonoVars :: (VarName -> Ty -> Bool) -> MonoEnv -> MonoEnv
 filterMonoVars p m = m{monovars = Map.filterWithKey p (monovars m)}
 
-mapMono :: (PolyTy -> PolyTy) -> MonoEnv -> MonoEnv
-mapMono f m = m{ty = fmap f (ty m),
-                monovars = fmap f (monovars m)}
-
--- TODO: Foldable/Traversable instead                        
-mapMonoM :: Monad m => (PolyTy -> m PolyTy) -> MonoEnv -> m MonoEnv
-mapMonoM f m = do let kvs = Map.toList (monovars m)
-                  kvs' <- mapM f' kvs
-                  ty' <- f'' (ty m)
-                  return m{ty = ty', 
-                           monovars = Map.fromList kvs'}
-    where f' (k, v) = do v' <- f v
-                         return $ (k, v')
-                         
-          f'' Nothing = return Nothing
-          f'' (Just σ) = do σ' <- f σ
-                            return $ Just σ'
-
+mapMonoM :: Monad m => (Ty -> m Ty) -> MonoEnv -> m MonoEnv
+mapMonoM f m = do monovars' <- mapM f (monovars m)
+                  τ' <- case ty m of
+                    Nothing -> return Nothing
+                    Just τ -> liftM Just $ f τ
+                  return m{ty = τ', monovars = monovars'}

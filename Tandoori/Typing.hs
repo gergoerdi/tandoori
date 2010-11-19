@@ -15,7 +15,8 @@ data Ty = TyVar Tv
         | TyApp Ty Ty
         | TyFun Ty Ty
         | TyTuple Int
-          -- TODO: Records
+        -- TODO: records
+        deriving (Eq, Ord)
 
 data TyCon = TyConData Con
            | TyConFun

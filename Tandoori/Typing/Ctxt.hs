@@ -15,7 +15,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 
 data Ctxt = Ctxt { monoVars :: Set VarName,
-                   polyVars :: Map VarName (MonoEnv, PolyTy),
+                   polyVars :: Map VarName (MonoEnv, Ty),
                    userDecls :: Map VarName (Located PolyTy) }
     
 mkCtxt :: Ctxt
@@ -25,10 +25,10 @@ mkCtxt = Ctxt { monoVars = Set.empty,
           
 addMonoVars ctxt@Ctxt{monoVars} vars = ctxt{ monoVars = monoVars `Set.union` vars }
 
-getPolyVar :: Ctxt -> VarName -> Maybe (MonoEnv, PolyTy)
+getPolyVar :: Ctxt -> VarName -> Maybe (MonoEnv, Ty)
 getPolyVar Ctxt{polyVars} varname = Map.lookup varname polyVars
                                     
-addPolyVars :: Ctxt -> [(VarName, (MonoEnv, PolyTy))] -> Ctxt
+addPolyVars :: Ctxt -> [(VarName, (MonoEnv, Ty))] -> Ctxt
 addPolyVars ctxt@Ctxt{polyVars} vars = ctxt{ polyVars = polyVars `Map.union` (Map.fromList vars) }
 
 getUserDecl :: Ctxt -> VarName -> Maybe (Located PolyTy)
