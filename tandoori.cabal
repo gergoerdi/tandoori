@@ -52,8 +52,10 @@ Build-type:          Simple
 Cabal-version:       >=1.2
 
 Executable tandoori
+  hs-source-dirs:    src
+
   -- .hs or .lhs file containing the Main module.
-  Main-is:           tandoori.hs
+  Main-is:           main.hs
 
   ghc-options:       -Wall -fwarn-tabs -fno-warn-incomplete-patterns -fno-warn-unused-binds -fno-warn-unused-matches -fno-warn-missing-signatures -fno-warn-name-shadowing -fno-warn-orphans
   
@@ -81,4 +83,3 @@ Executable tandoori
   
   -- Extra tools (e.g. alex, hsc2hs, ...) needed to build the source.
   -- Build-tools:         
-  
