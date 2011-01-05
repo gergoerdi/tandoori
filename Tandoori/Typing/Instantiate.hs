@@ -5,7 +5,6 @@ import Tandoori.Typing.Monad
 import Tandoori.Typing.MonoEnv    
 
 import qualified Data.Map as Map
-import Control.Applicative
 import Control.Monad.State
 
 type TvMap = Map.Map Tv Tv

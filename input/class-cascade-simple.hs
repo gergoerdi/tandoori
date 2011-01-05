@@ -1,6 +1,10 @@
+undefined = undefined
+
 class Foo a
     
 forceFoo :: Foo a => a -> a
-forceFoo x = x
+forceFoo x = undefined
 
 testInherit x = forceFoo x
+
+lam = \x -> forceFoo x

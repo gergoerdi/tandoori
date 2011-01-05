@@ -13,7 +13,13 @@ Version:             0.1
 Synopsis:            Compositional type checking for Haskell 98
 
 -- A longer description of the package.
--- Description:         
+Description:
+        Implementations of the traditional Hindley-Milner type system
+        can give poor error messages in some cases. This package
+        implements a type checker for a compositional type system that
+        is compatible with the Hindley-Milner type system extended by
+        typeclass polymorphism. See my MSc thesis at the package's
+        homepage for details.        
 
 -- URL for the project homepage or repository.
 Homepage:            http://gergo.erdi.hu/projects/tandoori/
@@ -47,7 +53,7 @@ Cabal-version:       >=1.2
 
 Executable tandoori
   -- .hs or .lhs file containing the Main module.
-  Main-is:           sandbox.hs
+  Main-is:           tandoori.hs
 
   ghc-options:       -Wall -fwarn-tabs -fno-warn-incomplete-patterns -fno-warn-unused-binds -fno-warn-unused-matches -fno-warn-missing-signatures -fno-warn-name-shadowing -fno-warn-orphans
   
@@ -61,7 +67,17 @@ Executable tandoori
                      ghc-paths
                      
   -- Modules not exported by this package.
-  -- Other-modules:       
+  Other-modules:     Tandoori
+
+                     Tandoori.Supply
+  
+                     Tandoori.GHC
+                     Tandoori.GHC.Internals Tandoori.GHC.Parse Tandoori.GHC.Scope
+                     
+                     Tandoori.Typing
+                     Tandoori.Typing.ClassDecl Tandoori.Typing.Ctxt Tandoori.Typing.DataType Tandoori.Typing.Error Tandoori.Typing.Infer
+                     Tandoori.Typing.InstanceDecl Tandoori.Typing.Instantiate Tandoori.Typing.Monad Tandoori.Typing.MonoEnv Tandoori.Typing.Pretty
+                     Tandoori.Typing.Repr Tandoori.Typing.Show Tandoori.Typing.Substitute Tandoori.Typing.Unify Tandoori.Typing.UnifyPred
   
   -- Extra tools (e.g. alex, hsc2hs, ...) needed to build the source.
   -- Build-tools:         

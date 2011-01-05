@@ -1,8 +1,8 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 import Prelude (Bool, Char)
 
-class Foo a where
-  foo :: a -> Bool
+class Eq a where
+  (==) :: a -> a -> Bool
 
 undefined = undefined
 
@@ -15,5 +15,5 @@ const = undefined
 toUpper :: Char -> Char
 toUpper = undefined
 
-test x = let y = foo x
+test x = let y = x == x
          in not x

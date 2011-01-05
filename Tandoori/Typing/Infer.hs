@@ -28,9 +28,6 @@ import Tandoori.GHC.Internals
 
 import Bag (bagToList)
     
-import Debug.Trace
-import Tandoori.Typing.Show
-
 infer decls group = runTyping $ do
                       cons <- concat <$> mapM constructorsFromDecl decls
                       withCons cons $ do
@@ -73,7 +70,7 @@ typeOfOverLit (OverLit { ol_val = val }) =
   do α <- mkTv
      let cls = case val of
            HsIntegral _ -> numClassName
-     return $ PolyTy [(cls, α)] (TyVar α)
+     -- return $ PolyTy [(cls, α)] (TyVar α)
      return $ PolyTy [] tyInt -- Comment this out to have non-polymorph integer literals
                                                              
 inferLExpr :: Located TanExpr -> Typing (MonoEnv, Ty)
@@ -97,9 +94,24 @@ inferExpr (ExplicitTuple tupargs _ ) =
      m ⊢ τ
   where 
     inferTupArg (Present lexpr) = inferLExpr lexpr                          
-inferExpr (HsApp ltyFun ltyParam) = 
-  do (m1, τ1) <- inferLExpr ltyFun
-     (m2, τ2) <- inferLExpr ltyParam
+inferExpr (OpApp left op fixity right) = inferExpr $ HsApp (noLoc $ HsApp op left) right
+inferExpr (HsIf cond thn els) = 
+  do (mCond, τCond) <- inferLExpr cond
+     (m1, τ1) <- inferLExpr thn
+     (m2, τ2) <- inferLExpr els
+     (mCond', _) <- unify [mCond] [τCond, tyBool]
+     (m, τ) <- unify [mCond', m1, m2] [τ1, τ2]
+     m ⊢ τ
+inferExpr (HsCase lexpr (MatchGroup lmatches _)) =
+  do (mCond, τCond) <- inferLExpr lexpr
+     (ms, τs) <- unzip <$> mapM inferLMatch lmatches
+     α <- mkTyVar
+     (m, TyFun _ τ) <- unify (mCond:ms) ((TyFun τCond α):τs)
+     m ⊢ τ
+  
+inferExpr (HsApp lFun lParam) = 
+  do (m1, τ1) <- inferLExpr lFun
+     (m2, τ2) <- inferLExpr lParam
      α <- mkTyVar
      (m, τ) <- unify [m1, m2] [τ1, tyCurryFun [τ2, α]]
      case τ of
@@ -111,7 +123,7 @@ inferExpr (HsApp ltyFun ltyParam) =
 inferExpr (HsLam (MatchGroup lmatches _)) = 
   do (ms, τs) <- unzip <$> mapM inferLMatch lmatches
      (m, τ) <- unify ms τs
-     m ⊢ τ
+     m ⊢ τ     
 
 -- TODO: move this to askPolyVar, kill askUserDecl
 inferExpr (HsVar x) = 
@@ -140,14 +152,6 @@ inferExpr (HsLet binds lexpr) =
      let isOutsideVisible var _ = not(var `Set.member` vars)
          m'' = filterMonoVars isOutsideVisible m'
      m'' ⊢ τ'
-inferExpr (OpApp left op fixity right) = inferExpr $ HsApp (noLoc $ HsApp op left) right
-inferExpr (HsIf cond thn els) = 
-  do (mCond, τCond) <- inferLExpr cond
-     (m1, τ1) <- inferLExpr thn
-     (m2, τ2) <- inferLExpr els
-     (mCond', _) <- unify [mCond] [τCond, tyBool]
-     (m, τ) <- unify [mCond', m1, m2] [τ1, τ2]
-     m ⊢ τ
      
 -- TODO:
 inferExpr (NegApp expr negfun) = error "infer': TODO: NegApp"

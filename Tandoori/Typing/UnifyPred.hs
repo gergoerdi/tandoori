@@ -11,7 +11,6 @@ import MonadUtils (anyM)
 import Control.Monad.Error
 import Control.Applicative
 import Data.Maybe
-import Data.Monoid
 import qualified Data.Set as Set
 import Data.Set (Set)
 

@@ -57,7 +57,7 @@ combineMonos :: [MonoEnv] -> MonoEnv
 combineMonos ms = MonoEnv{source = Nothing,
                           ty = Nothing,
                           monovars = mconcat $ map monovars ms,
-                          preds = mconcat $ map preds ms}
+                          preds = mconcat $ map preds ms} -- TODO: simplify preds
 
 filterMonoVars :: (VarName -> Ty -> Bool) -> MonoEnv -> MonoEnv
 filterMonoVars p m = m{monovars = Map.filterWithKey p (monovars m)}
