@@ -24,7 +24,7 @@ classMap decls = do (g, fromVertex) <- classGraph decls
                     mapM_ checkComponent components
                     let toClassInfo v = do let decl = fromVertex v
                                                cls = tcdName decl
-                                               [L _ (UserTyVar α)] = tcdTyVars decl
+                                               [L _ (UserTyVar α _)] = tcdTyVars decl
                                                lsigs = tcdSigs decl
                                                supers = map fromVertex' $ G.reachable g v
                                            meths <- mapM methDecl lsigs
@@ -43,7 +43,7 @@ classGraph decls = do (g, fromVertex, toVertex) <- G.graphFromEdges <$> edges
           edgesFromDecl decl = do checkCtx
                                   return (decl, cls, map fst ctx)
               where cls = tcdName decl
-                    [L _ (UserTyVar α)] = tcdTyVars decl
+                    [L _ (UserTyVar α _)] = tcdTyVars decl
                     ctx = map superFromPred $ map unLoc $ unLoc $ tcdCtxt decl
                     superFromPred (HsClassP cls [L _ (HsTyVar α')]) = (cls, α')
                     checkCtx = forM_ ctx $ \ (cls', α') ->

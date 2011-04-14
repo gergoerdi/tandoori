@@ -95,7 +95,7 @@ inferExpr (ExplicitTuple tupargs _ ) =
   where 
     inferTupArg (Present lexpr) = inferLExpr lexpr                          
 inferExpr (OpApp left op fixity right) = inferExpr $ HsApp (noLoc $ HsApp op left) right
-inferExpr (HsIf cond thn els) = 
+inferExpr (HsIf _ cond thn els) = 
   do (mCond, τCond) <- inferLExpr cond
      (m1, τ1) <- inferLExpr thn
      (m2, τ2) <- inferLExpr els

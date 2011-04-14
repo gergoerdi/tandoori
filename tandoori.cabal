@@ -61,7 +61,7 @@ Executable tandoori
   
   -- Packages needed in order to build this package.
   Build-depends:     base >= 3 && < 5,
-                     ghc >= 6.12.0 && < 6.13,
+                     ghc == 7.0.*,
                      boxes,
                      containers,
                      mtl,
